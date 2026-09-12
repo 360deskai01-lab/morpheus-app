@@ -11,12 +11,14 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { supabase } from './src/lib/supabase';
 import { ALL_TONES, transposeContent, transposeChord, isChordLine } from './src/utils/chordEngine';
 import { getChordVoicings } from './src/utils/chordDiagrams';
 import { getPianoKeysForChord, PIANO_KEYS_2_OCTAVES } from './src/utils/pianoDiagrams';
 import { getBassVoicings } from './src/utils/bassDiagrams';
+import { reharmonizeWithAI, MUSIC_STYLES, MusicStyle } from './src/services/aiArranger';
 import TunerModal from './src/components/TunerModal';
 import MorpheusWebPortal from './src/components/MorpheusWebPortal';
 import {
@@ -40,6 +42,7 @@ import {
   Globe,
   Music,
   Download,
+  Sparkles,
 } from 'lucide-react-native';
 
 export type SourceType = 'ALL' | 'MANUAL' | 'WEB' | 'AI_ARRANGED' | 'PEER_SHARE';
@@ -90,6 +93,10 @@ export default function App() {
   const [selectedInstrument, setSelectedInstrument] = useState<InstrumentType>('guitar');
   const [isNoteCardVisible, setIsNoteCardVisible] = useState(true);
   const [isTunerOpen, setIsTunerOpen] = useState(false);
+
+  // Sahne AI Aranjör State
+  const [isStageAiOpen, setIsStageAiOpen] = useState(false);
+  const [isStageArranging, setIsStageArranging] = useState(false);
 
   // Auto-Scroll
   const [isScrolling, setIsScrolling] = useState(false);
@@ -186,6 +193,57 @@ export default function App() {
   const handleOpenChordModal = (chord: string) => {
     setInspectedChord(chord);
     setChordVoicingIndex(0);
+  };
+
+  const handleStageAiArrange = async (style: MusicStyle) => {
+    if (!selectedSong) return;
+
+    try {
+      setIsStageArranging(true);
+      const localKey =
+        Platform.OS === 'web' && typeof localStorage !== 'undefined'
+          ? localStorage.getItem('morpheus_gemini_api_key') || ''
+          : '';
+
+      const result = await reharmonizeWithAI(
+        localKey,
+        selectedSong.title,
+        selectedSong.artist,
+        selectedSong.original_key,
+        selectedSong.content,
+        style
+      );
+
+      const { data, error } = await supabase
+        .from('morfeus_songs')
+        .insert([
+          {
+            title: result.newTitle,
+            artist: selectedSong.artist,
+            original_key: result.newKey,
+            bpm: selectedSong.bpm || 100,
+            capo: selectedSong.capo || 'Yok',
+            rhythm: result.rhythm,
+            notes: `Mobilde Gemini ile ${style} tarzında re-harmonize edildi.`,
+            content: result.newContent,
+            source_type: 'AI_ARRANGED',
+            parent_id: selectedSong.id,
+          },
+        ])
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setSongs([data[0], ...songs]);
+        handleSelectSong(data[0]);
+        setIsStageAiOpen(false);
+      }
+    } catch (err: any) {
+      alert(`AI Aranjör Hatası: ${err.message || err}`);
+    } finally {
+      setIsStageArranging(false);
+    }
   };
 
   const handleGenerateShareCode = async (song: Song) => {
@@ -441,7 +499,7 @@ export default function App() {
                 platformTab === 'STAGE' && styles.platformTabTextActive,
               ]}
             >
-              Morpheus Sahne
+              Morpheus Sahne (App)
             </Text>
           </TouchableOpacity>
 
@@ -473,7 +531,7 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* PLATFORM KOŞULU: WEB_PORTAL MI, STAGE APP Mİ? */}
+      {/* GÖVDE: PORTAL MI SAHNE Mİ? */}
       {platformTab === 'WEB_PORTAL' ? (
         <MorpheusWebPortal
           onSendToStage={(webSong) => {
@@ -496,7 +554,7 @@ export default function App() {
                   >
                     <ArrowLeft color="#F8FAFC" size={20} />
                   </TouchableOpacity>
-                  <View style={{ flex: 1, marginHorizontal: 10 }}>
+                  <View style={{ flex: 1, marginHorizontal: 8 }}>
                     <Text style={styles.title} numberOfLines={1}>
                       {selectedSong.title}
                     </Text>
@@ -513,24 +571,31 @@ export default function App() {
                   ) : null}
 
                   <TouchableOpacity
+                    style={[styles.topIconBtn, { backgroundColor: '#312E81' }]}
+                    onPress={() => setIsStageAiOpen(true)}
+                  >
+                    <Sparkles color="#F59E0B" size={16} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
                     style={styles.topIconBtn}
                     onPress={() => handleGenerateShareCode(selectedSong)}
                   >
-                    <Share2 color="#38BDF8" size={17} />
+                    <Share2 color="#38BDF8" size={16} />
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={styles.topIconBtn}
                     onPress={() => setIsTunerOpen(true)}
                   >
-                    <Volume2 color="#10B981" size={17} />
+                    <Volume2 color="#10B981" size={16} />
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={styles.topIconBtn}
                     onPress={() => handleDeleteSong(selectedSong.id)}
                   >
-                    <Trash2 color="#EF4444" size={17} />
+                    <Trash2 color="#EF4444" size={16} />
                   </TouchableOpacity>
                 </View>
 
@@ -856,226 +921,296 @@ export default function App() {
         </View>
       )}
 
-      {/* 6 HANELİ PAYLAŞIM KODU MODALI */}
-      <Modal visible={isShareModalOpen} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.shareModalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sahne Paylaşım Kodu</Text>
-              <TouchableOpacity onPress={() => setIsShareModalOpen(false)}>
-                <X color="#94A3B8" size={20} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.shareSubtitle}>
-              Grup arkadaşınız bu 6 haneli kodu girerek şarkıyı anında kendi sahnesine aktarabilir:
-            </Text>
-            <View style={styles.shareCodeCard}>
-              <Text style={styles.shareCodeDigits}>{generatedShareCode}</Text>
-            </View>
+      {/* MOBİL SAHNE AI MODALI (DIŞARI TIKLAYINCA KAPANIR) */}
+      <Modal visible={isStageAiOpen} transparent animationType="slide" onRequestClose={() => !isStageArranging && setIsStageAiOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => !isStageArranging && setIsStageAiOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.aiModalBox}>
+                <View style={styles.modalHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Sparkles color="#F59E0B" size={18} />
+                    <Text style={styles.modalChordTitle}>Sahne AI Aranjörü</Text>
+                  </View>
+                  {!isStageArranging && (
+                    <TouchableOpacity onPress={() => setIsStageAiOpen(false)}>
+                      <X color="#94A3B8" size={18} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <Text style={{ color: '#94A3B8', fontSize: 11, marginBottom: 12 }}>
+                  "{selectedSong?.title}" şarkısının armonisini canlı sahne için yeniden üretin:
+                </Text>
+
+                {isStageArranging ? (
+                  <View style={{ paddingVertical: 24, alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator size="large" color="#F59E0B" />
+                    <Text style={{ color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 }}>Sahne versiyonu hazırlanıyor...</Text>
+                  </View>
+                ) : (
+                  <ScrollView style={{ maxHeight: 300 }}>
+                    {MUSIC_STYLES.map((st) => (
+                      <TouchableOpacity
+                        key={st.id}
+                        style={styles.stageStyleRow}
+                        onPress={() => handleStageAiArrange(st.id)}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 }}>{st.name}</Text>
+                          <Text style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>{st.desc}</Text>
+                        </View>
+                        <ChevronRight color="#64748B" size={16} />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* 6 HANELİ PAYLAŞIM KODU MODALI (DIŞARI TIKLAYINCA KAPANIR) */}
+      <Modal visible={isShareModalOpen} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsShareModalOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.shareModalBox}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Sahne Paylaşım Kodu</Text>
+                  <TouchableOpacity onPress={() => setIsShareModalOpen(false)}>
+                    <X color="#94A3B8" size={20} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.shareSubtitle}>
+                  Grup arkadaşınız bu 6 haneli kodu girerek şarkıyı anında kendi sahnesine aktarabilir:
+                </Text>
+                <View style={styles.shareCodeCard}>
+                  <Text style={styles.shareCodeDigits}>{generatedShareCode}</Text>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* KODLA İÇERİ AKTARMA MODALI */}
       <Modal visible={isImportModalOpen} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.shareModalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Kodla Şarkı Aktar</Text>
-              <TouchableOpacity onPress={() => setIsImportModalOpen(false)}>
-                <X color="#94A3B8" size={20} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.shareSubtitle}>
-              Arkadaşınızdan veya Web Portalı'ndan aldığınız 6 haneli kodu buraya girin:
-            </Text>
-            <TextInput
-              style={[styles.formInput, { textAlign: 'center', fontSize: 18, fontWeight: 'bold' }]}
-              placeholder="MORF-XXXXXX"
-              placeholderTextColor="#64748B"
-              value={importCodeInput}
-              onChangeText={setImportCodeInput}
-              autoCapitalize="characters"
-            />
-            <TouchableOpacity
-              style={[styles.saveBtn, isImporting && { opacity: 0.6 }]}
-              onPress={handleImportByCode}
-              disabled={isImporting}
-            >
-              <Text style={styles.saveBtnText}>
-                {isImporting ? 'Aktarılıyor...' : 'Şarkıyı Sahneye Ekle'}
-              </Text>
-            </TouchableOpacity>
+        <TouchableWithoutFeedback onPress={() => setIsImportModalOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.shareModalBox}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Kodla Şarkı Aktar</Text>
+                  <TouchableOpacity onPress={() => setIsImportModalOpen(false)}>
+                    <X color="#94A3B8" size={20} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.shareSubtitle}>
+                  Arkadaşınızdan veya Web Portalı'ndan aldığınız 6 haneli kodu buraya girin:
+                </Text>
+                <TextInput
+                  style={[styles.formInput, { textAlign: 'center', fontSize: 18, fontWeight: 'bold' }]}
+                  placeholder="MORF-XXXXXX"
+                  placeholderTextColor="#64748B"
+                  value={importCodeInput}
+                  onChangeText={setImportCodeInput}
+                  autoCapitalize="characters"
+                />
+                <TouchableOpacity
+                  style={[styles.saveBtn, isImporting && { opacity: 0.6 }]}
+                  onPress={handleImportByCode}
+                  disabled={isImporting}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {isImporting ? 'Aktarılıyor...' : 'Şarkıyı Sahneye Ekle'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
-      {/* AKOR POZİSYON MODALI */}
+      {/* 1. MADDE: AKOR POZİSYON MODALI (DIŞARI TIKLAYINCA KAPANIR) */}
       <Modal
         visible={!!inspectedChord}
         transparent={true}
         animationType="fade"
         onRequestClose={() => setInspectedChord(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.chordModalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalChordTitle}>{inspectedChord}</Text>
-              <TouchableOpacity onPress={() => setInspectedChord(null)}>
-                <X color="#94A3B8" size={20} />
-              </TouchableOpacity>
-            </View>
+        <TouchableWithoutFeedback onPress={() => setInspectedChord(null)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.chordModalBox}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalChordTitle}>{inspectedChord}</Text>
+                  <TouchableOpacity onPress={() => setInspectedChord(null)}>
+                    <X color="#94A3B8" size={20} />
+                  </TouchableOpacity>
+                </View>
 
-            {inspectedChord && (
-              <View style={{ alignItems: 'center', paddingVertical: 10 }}>
-                {selectedInstrument === 'guitar' && (
-                  <GuitarDiagram
-                    chord={inspectedChord}
-                    voicingIdx={chordVoicingIndex}
-                    setVoicingIdx={setChordVoicingIndex}
-                  />
-                )}
-                {selectedInstrument === 'piano' && <PianoDiagram chord={inspectedChord} />}
-                {selectedInstrument === 'bass' && (
-                  <BassDiagram
-                    chord={inspectedChord}
-                    voicingIdx={chordVoicingIndex}
-                    setVoicingIdx={setChordVoicingIndex}
-                  />
+                {inspectedChord && (
+                  <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                    {selectedInstrument === 'guitar' && (
+                      <GuitarDiagram
+                        chord={inspectedChord}
+                        voicingIdx={chordVoicingIndex}
+                        setVoicingIdx={setChordVoicingIndex}
+                      />
+                    )}
+                    {selectedInstrument === 'piano' && <PianoDiagram chord={inspectedChord} />}
+                    {selectedInstrument === 'bass' && (
+                      <BassDiagram
+                        chord={inspectedChord}
+                        voicingIdx={chordVoicingIndex}
+                        setVoicingIdx={setChordVoicingIndex}
+                      />
+                    )}
+                  </View>
                 )}
               </View>
-            )}
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* ŞARKI EKLEME MODALI */}
       <Modal visible={isAddModalOpen} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.addModalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Yeni Şarkı Ekle</Text>
-              <TouchableOpacity onPress={() => setIsAddModalOpen(false)}>
-                <X color="#94A3B8" size={20} />
-              </TouchableOpacity>
-            </View>
+        <TouchableWithoutFeedback onPress={() => setIsAddModalOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.addModalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Yeni Şarkı Ekle</Text>
+                  <TouchableOpacity onPress={() => setIsAddModalOpen(false)}>
+                    <X color="#94A3B8" size={20} />
+                  </TouchableOpacity>
+                </View>
 
-            <TextInput
-              style={styles.formInput}
-              placeholder="Şarkı Adı"
-              placeholderTextColor="#64748B"
-              value={newTitle}
-              onChangeText={setNewTitle}
-            />
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Şarkı Adı"
+                  placeholderTextColor="#64748B"
+                  value={newTitle}
+                  onChangeText={setNewTitle}
+                />
 
-            <TextInput
-              style={styles.formInput}
-              placeholder="Sanatçı"
-              placeholderTextColor="#64748B"
-              value={newArtist}
-              onChangeText={setNewArtist}
-            />
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Sanatçı"
+                  placeholderTextColor="#64748B"
+                  value={newArtist}
+                  onChangeText={setNewArtist}
+                />
 
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TextInput
-                style={[styles.formInput, { flex: 1 }]}
-                placeholder="Ton (Am)"
-                placeholderTextColor="#64748B"
-                value={newOriginalKey}
-                onChangeText={setNewOriginalKey}
-              />
-              <TextInput
-                style={[styles.formInput, { flex: 1 }]}
-                placeholder="BPM (100)"
-                placeholderTextColor="#64748B"
-                value={newBpm}
-                onChangeText={setNewBpm}
-                keyboardType="numeric"
-              />
-              <TextInput
-                style={[styles.formInput, { flex: 1 }]}
-                placeholder="Kapo"
-                placeholderTextColor="#64748B"
-                value={newCapo}
-                onChangeText={setNewCapo}
-              />
-            </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[styles.formInput, { flex: 1 }]}
+                    placeholder="Ton (Am)"
+                    placeholderTextColor="#64748B"
+                    value={newOriginalKey}
+                    onChangeText={setNewOriginalKey}
+                  />
+                  <TextInput
+                    style={[styles.formInput, { flex: 1 }]}
+                    placeholder="BPM (100)"
+                    placeholderTextColor="#64748B"
+                    value={newBpm}
+                    onChangeText={setNewBpm}
+                    keyboardType="numeric"
+                  />
+                  <TextInput
+                    style={[styles.formInput, { flex: 1 }]}
+                    placeholder="Kapo"
+                    placeholderTextColor="#64748B"
+                    value={newCapo}
+                    onChangeText={setNewCapo}
+                  />
+                </View>
 
-            <TextInput
-              style={styles.formInput}
-              placeholder="Ritim (Örn: 4/4 A-Y-A-Y)"
-              placeholderTextColor="#64748B"
-              value={newRhythm}
-              onChangeText={setNewRhythm}
-            />
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Ritim (Örn: 4/4 A-Y-A-Y)"
+                  placeholderTextColor="#64748B"
+                  value={newRhythm}
+                  onChangeText={setNewRhythm}
+                />
 
-            <TextInput
-              style={styles.formInput}
-              placeholder="Sahne Notu"
-              placeholderTextColor="#64748B"
-              value={newNotes}
-              onChangeText={setNewNotes}
-            />
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Sahne Notu"
+                  placeholderTextColor="#64748B"
+                  value={newNotes}
+                  onChangeText={setNewNotes}
+                />
 
-            <TextInput
-              style={[styles.formInput, styles.textArea]}
-              placeholder="[Am] Akdeniz akşamları bir [Dm] başka oluyor..."
-              placeholderTextColor="#64748B"
-              value={newContent}
-              onChangeText={setNewContent}
-              multiline
-            />
+                <TextInput
+                  style={[styles.formInput, styles.textArea]}
+                  placeholder="[Am] Akdeniz akşamları bir [Dm] başka oluyor..."
+                  placeholderTextColor="#64748B"
+                  value={newContent}
+                  onChangeText={setNewContent}
+                  multiline
+                />
 
-            <TouchableOpacity
-              style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
-              onPress={handleSaveSong}
-              disabled={isSaving}
-            >
-              <Text style={styles.saveBtnText}>
-                {isSaving ? 'Kaydediliyor...' : 'Repertuvara Kaydet'}
-              </Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
+                  onPress={handleSaveSong}
+                  disabled={isSaving}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {isSaving ? 'Kaydediliyor...' : 'Repertuvara Kaydet'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* TON SEÇİCİ MODAL */}
       <Modal visible={isToneModalOpen} animationType="fade" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ton Seçin</Text>
-              <TouchableOpacity onPress={() => setIsToneModalOpen(false)}>
-                <Text style={styles.closeText}>Kapat</Text>
-              </TouchableOpacity>
-            </View>
+        <TouchableWithoutFeedback onPress={() => setIsToneModalOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Ton Seçin</Text>
+                  <TouchableOpacity onPress={() => setIsToneModalOpen(false)}>
+                    <Text style={styles.closeText}>Kapat</Text>
+                  </TouchableOpacity>
+                </View>
 
-            <ScrollView contentContainerStyle={styles.tonesGrid}>
-              {ALL_TONES.map((tone) => (
-                <TouchableOpacity
-                  key={tone}
-                  style={[
-                    styles.toneGridItem,
-                    selectedTone === tone && styles.selectedToneGridItem,
-                  ]}
-                  onPress={() => {
-                    setSelectedTone(tone);
-                    setIsToneModalOpen(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.toneGridText,
-                      selectedTone === tone && styles.selectedToneGridText,
-                    ]}
-                  >
-                    {tone}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                <ScrollView contentContainerStyle={styles.tonesGrid}>
+                  {ALL_TONES.map((tone) => (
+                    <TouchableOpacity
+                      key={tone}
+                      style={[
+                        styles.toneGridItem,
+                        selectedTone === tone && styles.selectedToneGridItem,
+                      ]}
+                      onPress={() => {
+                        setSelectedTone(tone);
+                        setIsToneModalOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.toneGridText,
+                          selectedTone === tone && styles.selectedToneGridText,
+                        ]}
+                      >
+                        {tone}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       <TunerModal visible={isTunerOpen} onClose={() => setIsTunerOpen(false)} />
@@ -1561,7 +1696,7 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  modalChordTitle: { fontSize: 20, fontWeight: 'bold', color: '#F87171' },
+  modalChordTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
   shareModalBox: {
     backgroundColor: '#1E293B',
     borderRadius: 12,
@@ -1629,6 +1764,9 @@ const styles = StyleSheet.create({
   selectedToneGridItem: { backgroundColor: '#0284C7', borderColor: '#38BDF8' },
   toneGridText: { fontSize: 12, fontWeight: '600', color: '#F8FAFC' },
   selectedToneGridText: { color: '#FFFFFF' },
+
+  aiModalBox: { width: '100%', maxWidth: 380, backgroundColor: '#1E293B', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#334155' },
+  stageStyleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0F172A', padding: 10, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: '#334155' },
 
   voicingNav: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   vNavBtn: { backgroundColor: '#0F172A', padding: 4, borderRadius: 4 },
