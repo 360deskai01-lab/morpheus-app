@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
-  Alert,
 } from 'react-native';
 import { supabase } from './src/lib/supabase';
 import { ALL_TONES, transposeContent, transposeChord, isChordLine } from './src/utils/chordEngine';
@@ -19,6 +18,7 @@ import { getChordVoicings } from './src/utils/chordDiagrams';
 import { getPianoKeysForChord, PIANO_KEYS_2_OCTAVES } from './src/utils/pianoDiagrams';
 import { getBassVoicings } from './src/utils/bassDiagrams';
 import TunerModal from './src/components/TunerModal';
+import MorpheusWebPortal from './src/components/MorpheusWebPortal';
 import {
   Plus,
   Minus,
@@ -35,13 +35,15 @@ import {
   Bookmark,
   Share2,
   Trash2,
-  Layers,
   ChevronLeft,
   ChevronRight,
-  Info,
+  Globe,
+  Music,
+  Download,
 } from 'lucide-react-native';
 
 export type SourceType = 'ALL' | 'MANUAL' | 'WEB' | 'AI_ARRANGED' | 'PEER_SHARE';
+type ActivePlatformTab = 'STAGE' | 'WEB_PORTAL';
 
 interface Song {
   id: string;
@@ -71,6 +73,7 @@ const MONO_FONT = Platform.select({
 });
 
 export default function App() {
+  const [platformTab, setPlatformTab] = useState<ActivePlatformTab>('WEB_PORTAL');
   const [songs, setSongs] = useState<Song[]>([]);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,15 +98,19 @@ export default function App() {
   const currentScrollY = useRef(0);
   const scrollIntervalRef = useRef<any>(null);
 
-  // BPM Görsel Metronom
+  // BPM Metronom
   const [isBeatActive, setIsBeatActive] = useState(false);
 
   // Akor Pop-up
   const [inspectedChord, setInspectedChord] = useState<string | null>(null);
   const [chordVoicingIndex, setChordVoicingIndex] = useState(0);
 
-  // Form State
+  // Modallar
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importCodeInput, setImportCodeInput] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+
   const [newTitle, setNewTitle] = useState('');
   const [newArtist, setNewArtist] = useState('');
   const [newOriginalKey, setNewOriginalKey] = useState('Am');
@@ -114,7 +121,6 @@ export default function App() {
   const [newContent, setNewContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Paylaşım Modalı State
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [generatedShareCode, setGeneratedShareCode] = useState('');
 
@@ -139,7 +145,6 @@ export default function App() {
     }
   };
 
-  // Auto-Scroll Döngüsü
   useEffect(() => {
     if (isScrolling) {
       scrollIntervalRef.current = setInterval(() => {
@@ -155,7 +160,6 @@ export default function App() {
     };
   }, [isScrolling, scrollSpeed]);
 
-  // BPM Vuruş Tetikleyici
   useEffect(() => {
     if (!selectedSong?.bpm || selectedSong.bpm <= 0) return;
     const intervalMs = (60 / selectedSong.bpm) * 1000;
@@ -199,6 +203,60 @@ export default function App() {
       setIsShareModalOpen(true);
     } catch (err: any) {
       alert('Paylaşım kodu hatası: ' + err.message);
+    }
+  };
+
+  const handleImportByCode = async () => {
+    const code = importCodeInput.trim().toUpperCase();
+    if (!code) {
+      alert('Lütfen geçerli bir kod girin (Örn: MORF-XXXXXX)');
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      const { data, error } = await supabase
+        .from('morfeus_shares')
+        .select('*')
+        .eq('share_code', code)
+        .single();
+
+      if (error || !data) {
+        alert('Bu koda ait şarkı bulunamadı.');
+        return;
+      }
+
+      const songPayload = data.payload;
+      const { data: insertedData, error: insErr } = await supabase
+        .from('morfeus_songs')
+        .insert([
+          {
+            title: songPayload.title,
+            artist: songPayload.artist,
+            original_key: songPayload.original_key || 'Am',
+            bpm: songPayload.bpm || 100,
+            capo: songPayload.capo || 'Yok',
+            rhythm: songPayload.rhythm || '',
+            notes: songPayload.notes || '',
+            content: songPayload.content,
+            source_type: 'PEER_SHARE',
+          },
+        ])
+        .select();
+
+      if (insErr) throw insErr;
+
+      if (insertedData && insertedData.length > 0) {
+        setSongs([insertedData[0], ...songs]);
+        handleSelectSong(insertedData[0]);
+        setIsImportModalOpen(false);
+        setImportCodeInput('');
+        setPlatformTab('STAGE');
+      }
+    } catch (err: any) {
+      alert('İçe aktarma hatası: ' + err.message);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -258,7 +316,6 @@ export default function App() {
     }
   };
 
-  // Akorları hece üstüne hizalayan sahne renderer
   const renderStageContent = (content: string) => {
     const lines = content.split('\n');
 
@@ -338,7 +395,6 @@ export default function App() {
     });
   };
 
-  // Filtreleme ve Türkçe A-Z Sıralama
   const filteredSongs = songs
     .filter((s) => {
       const matchSearch =
@@ -364,393 +420,497 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080C15" />
+      <StatusBar barStyle="light-content" backgroundColor="#070B13" />
 
-      <View style={styles.mainWrapper}>
-        <View style={styles.contentCard}>
-          {selectedSong ? (
-            /* ================= 1. SAHNE MODU ================= */
-            <>
-              <View style={styles.header}>
-                <TouchableOpacity
-                  style={styles.backBtn}
-                  onPress={() => {
-                    setSelectedSong(null);
-                    setIsScrolling(false);
-                  }}
-                >
-                  <ArrowLeft color="#F8FAFC" size={20} />
-                </TouchableOpacity>
-                <View style={{ flex: 1, marginHorizontal: 10 }}>
-                  <Text style={styles.title} numberOfLines={1}>
-                    {selectedSong.title}
-                  </Text>
-                  <Text style={styles.artist} numberOfLines={1}>
-                    {selectedSong.artist}
-                  </Text>
-                </View>
-
-                {selectedSong.bpm ? (
-                  <View style={styles.bpmBadge}>
-                    <View style={[styles.bpmDot, isBeatActive && styles.bpmDotActive]} />
-                    <Text style={styles.bpmText}>{selectedSong.bpm} BPM</Text>
-                  </View>
-                ) : null}
-
-                <TouchableOpacity
-                  style={styles.topIconBtn}
-                  onPress={() => handleGenerateShareCode(selectedSong)}
-                >
-                  <Share2 color="#38BDF8" size={17} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.topIconBtn}
-                  onPress={() => setIsTunerOpen(true)}
-                >
-                  <Volume2 color="#10B981" size={17} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.topIconBtn}
-                  onPress={() => handleDeleteSong(selectedSong.id)}
-                >
-                  <Trash2 color="#EF4444" size={17} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Ton, Enstrüman ve Transpoze Barı */}
-              <View style={styles.controlBar}>
-                <TouchableOpacity
-                  style={styles.toneButton}
-                  onPress={() => setIsToneModalOpen(true)}
-                >
-                  <Text style={styles.toneLabel}>TON:</Text>
-                  <Text style={styles.toneValue}>
-                    {selectedTone || selectedSong.original_key}
-                  </Text>
-                  <ChevronDown color="#94A3B8" size={13} />
-                </TouchableOpacity>
-
-                <View style={styles.instrumentGroup}>
-                  {(['guitar', 'piano', 'bass'] as InstrumentType[]).map((inst) => (
-                    <TouchableOpacity
-                      key={inst}
-                      style={[
-                        styles.instrumentItemBtn,
-                        selectedInstrument === inst && styles.instrumentItemBtnActive,
-                      ]}
-                      onPress={() => setSelectedInstrument(inst)}
-                    >
-                      <Text
-                        style={[
-                          styles.instrumentLabel,
-                          selectedInstrument === inst && styles.instrumentLabelActive,
-                        ]}
-                      >
-                        {inst === 'guitar' ? 'Gitar' : inst === 'piano' ? 'Piyano' : 'Bas'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <View style={styles.transposeControls}>
-                  <TouchableOpacity
-                    style={styles.fontBtn}
-                    onPress={() => setFontSize((p) => Math.max(12, p - 1))}
-                  >
-                    <Text style={styles.fontBtnText}>A-</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.fontBtn}
-                    onPress={() => setFontSize((p) => Math.min(26, p + 1))}
-                  >
-                    <Text style={styles.fontBtnText}>A+</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.circleBtn}
-                    onPress={() => handleTranspose(-1)}
-                  >
-                    <Minus color="#FFFFFF" size={14} />
-                  </TouchableOpacity>
-                  <Text style={styles.transposeText}>
-                    {transposeValue > 0 ? `+${transposeValue}` : transposeValue}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.circleBtn}
-                    onPress={() => handleTranspose(1)}
-                  >
-                    <Plus color="#FFFFFF" size={14} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Sahne Alanı */}
-              <ScrollView
-                ref={scrollRef}
-                style={styles.scrollArea}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-              >
-                {/* Sahne Bilgi Kartı */}
-                {(selectedSong.capo || selectedSong.rhythm || selectedSong.notes) && (
-                  <View style={styles.infoCard}>
-                    <TouchableOpacity
-                      style={styles.infoHeader}
-                      onPress={() => setIsNoteCardVisible(!isNoteCardVisible)}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Bookmark color="#F59E0B" size={14} />
-                        <Text style={styles.infoCardTitle}>Sahne Notları</Text>
-                      </View>
-                      {isNoteCardVisible ? (
-                        <ChevronUp color="#94A3B8" size={14} />
-                      ) : (
-                        <ChevronDown color="#94A3B8" size={14} />
-                      )}
-                    </TouchableOpacity>
-
-                    {isNoteCardVisible && (
-                      <View style={styles.infoBody}>
-                        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                          {selectedSong.capo ? (
-                            <View style={styles.pill}>
-                              <Text style={styles.pillLabel}>KAPO:</Text>
-                              <Text style={styles.pillVal}>{selectedSong.capo}</Text>
-                            </View>
-                          ) : null}
-                          {selectedSong.rhythm ? (
-                            <View style={styles.pill}>
-                              <Text style={styles.pillLabel}>RİTİM:</Text>
-                              <Text style={styles.pillVal}>{selectedSong.rhythm}</Text>
-                            </View>
-                          ) : null}
-                        </View>
-                        {selectedSong.notes ? (
-                          <Text style={styles.notesText}>{selectedSong.notes}</Text>
-                        ) : null}
-                      </View>
-                    )}
-                  </View>
-                )}
-
-                {/* Şarkı İçeriği */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={{ minWidth: '100%' }}>
-                    {renderStageContent(
-                      transposeContent(selectedSong.content, transposeValue)
-                    )}
-                  </View>
-                </ScrollView>
-              </ScrollView>
-
-              {/* Yüzen Auto-Scroll Kontrol Paneli */}
-              <View style={styles.floatingBar}>
-                <TouchableOpacity
-                  style={[styles.scrollActionBtn, isScrolling && styles.scrollActionBtnActive]}
-                  onPress={() => setIsScrolling(!isScrolling)}
-                >
-                  {isScrolling ? (
-                    <Pause color="#FFFFFF" size={16} />
-                  ) : (
-                    <Play color="#FFFFFF" size={16} fill="#FFFFFF" />
-                  )}
-                  <Text style={styles.scrollActionText}>
-                    {isScrolling ? 'DURDUR' : 'KAYDIR'}
-                  </Text>
-                </TouchableOpacity>
-
-                <View style={styles.speedBox}>
-                  {[1, 2, 3, 4].map((spd) => (
-                    <TouchableOpacity
-                      key={spd}
-                      style={[styles.speedBtn, scrollSpeed === spd && styles.speedBtnActive]}
-                      onPress={() => setScrollSpeed(spd)}
-                    >
-                      <Text
-                        style={[
-                          styles.speedBtnText,
-                          scrollSpeed === spd && styles.speedBtnTextActive,
-                        ]}
-                      >
-                        {spd}x
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TouchableOpacity
-                  style={styles.resetBtn}
-                  onPress={() => {
-                    setIsScrolling(false);
-                    currentScrollY.current = 0;
-                    scrollRef.current?.scrollTo({ y: 0, animated: true });
-                  }}
-                >
-                  <RotateCcw color="#94A3B8" size={16} />
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            /* ================= 2. REPERTUAR LİSTESİ ================= */
-            <>
-              <View style={styles.listHeader}>
-                <View>
-                  <Text style={styles.mainTitle}>Morpheus Sahne</Text>
-                  <Text style={styles.subTitle}>{songs.length} Şarkı Hazır</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.addBtn}
-                  onPress={() => setIsAddModalOpen(true)}
-                >
-                  <PlusCircle color="#FFFFFF" size={17} />
-                  <Text style={styles.addBtnText}>Şarkı Ekle</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Arama ve Sıralama Toggle */}
-              <View style={styles.searchRow}>
-                <View style={styles.searchBar}>
-                  <Search color="#64748B" size={16} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Şarkı veya sanatçı ara..."
-                    placeholderTextColor="#64748B"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                  />
-                  {searchQuery ? (
-                    <TouchableOpacity onPress={() => setSearchQuery('')}>
-                      <X color="#64748B" size={16} />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                <TouchableOpacity
-                  style={styles.sortToggleBtn}
-                  onPress={() =>
-                    setSortMode((prev) => (prev === 'TITLE' ? 'ARTIST' : 'TITLE'))
-                  }
-                >
-                  <Text style={styles.sortToggleText}>
-                    {sortMode === 'TITLE' ? 'Şarkı A-Z' : 'Sanatçı A-Z'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* 5'li Kaynak Filtresi */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.filterBar}
-                contentContainerStyle={styles.filterBarContent}
-              >
-                {[
-                  { key: 'ALL', label: 'Tümü' },
-                  { key: 'MANUAL', label: 'Manuel' },
-                  { key: 'WEB', label: 'Web' },
-                  { key: 'AI_ARRANGED', label: 'AI Aranje' },
-                  { key: 'PEER_SHARE', label: 'Paylaşılan' },
-                ].map((item) => (
-                  <TouchableOpacity
-                    key={item.key}
-                    style={[
-                      styles.filterChip,
-                      sourceFilter === item.key && styles.filterChipActive,
-                    ]}
-                    onPress={() => setSourceFilter(item.key as SourceType)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        sourceFilter === item.key && styles.filterChipTextActive,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              {/* Türkçe Alfabetik İndeks Barı */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.alphaBar}
-                contentContainerStyle={styles.alphaBarContent}
-              >
-                <TouchableOpacity
-                  style={[styles.alphaChip, !selectedLetter && styles.alphaChipActive]}
-                  onPress={() => setSelectedLetter(null)}
-                >
-                  <Text
-                    style={[styles.alphaText, !selectedLetter && styles.alphaTextActive]}
-                  >
-                    Hepsi
-                  </Text>
-                </TouchableOpacity>
-                {TURKISH_ALPHABET.map((char) => (
-                  <TouchableOpacity
-                    key={char}
-                    style={[
-                      styles.alphaChip,
-                      selectedLetter === char && styles.alphaChipActive,
-                    ]}
-                    onPress={() => setSelectedLetter(selectedLetter === char ? null : char)}
-                  >
-                    <Text
-                      style={[
-                        styles.alphaText,
-                        selectedLetter === char && styles.alphaTextActive,
-                      ]}
-                    >
-                      {char}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              {/* Şarkı Listesi */}
-              {loading ? (
-                <View style={styles.center}>
-                  <ActivityIndicator size="large" color="#4F46E5" />
-                </View>
-              ) : (
-                <ScrollView style={styles.listArea}>
-                  {filteredSongs.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={styles.songListItem}
-                      onPress={() => handleSelectSong(item)}
-                    >
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={styles.songListTitle}>{item.title}</Text>
-                          {item.source_type && item.source_type !== 'MANUAL' && (
-                            <View style={styles.sourceBadge}>
-                              <Text style={styles.sourceBadgeText}>{item.source_type}</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={styles.songListArtist}>{item.artist}</Text>
-                      </View>
-                      <View style={styles.keyBadge}>
-                        <Text style={styles.keyBadgeText}>{item.original_key}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                  {filteredSongs.length === 0 && (
-                    <Text style={styles.emptyText}>Bu filtreye uygun şarkı bulunamadı.</Text>
-                  )}
-                </ScrollView>
-              )}
-            </>
-          )}
+      {/* PLATFORM ÜST SEKME SEÇİCİSİ */}
+      <View style={styles.platformNavHeader}>
+        <View style={styles.platformBrand}>
+          <Text style={styles.brandMorpheus}>MORPHEUS</Text>
+          <Text style={styles.brandMusic}>MUSIC</Text>
         </View>
+
+        <View style={styles.platformTabGroup}>
+          <TouchableOpacity
+            style={[styles.platformTabBtn, platformTab === 'STAGE' && styles.platformTabBtnActive]}
+            onPress={() => setPlatformTab('STAGE')}
+          >
+            <Music color={platformTab === 'STAGE' ? '#38BDF8' : '#64748B'} size={15} />
+            <Text
+              style={[
+                styles.platformTabText,
+                platformTab === 'STAGE' && styles.platformTabTextActive,
+              ]}
+            >
+              Morpheus Sahne
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.platformTabBtn,
+              platformTab === 'WEB_PORTAL' && styles.platformTabBtnActive,
+            ]}
+            onPress={() => setPlatformTab('WEB_PORTAL')}
+          >
+            <Globe color={platformTab === 'WEB_PORTAL' ? '#38BDF8' : '#64748B'} size={15} />
+            <Text
+              style={[
+                styles.platformTabText,
+                platformTab === 'WEB_PORTAL' && styles.platformTabTextActive,
+              ]}
+            >
+              Web Portalı (3-Kolon)
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={styles.importCodeBtn}
+          onPress={() => setIsImportModalOpen(true)}
+        >
+          <Download color="#38BDF8" size={14} />
+          <Text style={styles.importCodeBtnText}>Kodla Aktar</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* AKOR DETAY POZİSYON MODALI */}
+      {/* PLATFORM KOŞULU: WEB_PORTAL MI, STAGE APP Mİ? */}
+      {platformTab === 'WEB_PORTAL' ? (
+        <MorpheusWebPortal
+          onSendToStage={(webSong) => {
+            handleSelectSong(webSong);
+            setPlatformTab('STAGE');
+          }}
+        />
+      ) : (
+        <View style={styles.mainWrapper}>
+          <View style={styles.contentCard}>
+            {selectedSong ? (
+              <>
+                <View style={styles.header}>
+                  <TouchableOpacity
+                    style={styles.backBtn}
+                    onPress={() => {
+                      setSelectedSong(null);
+                      setIsScrolling(false);
+                    }}
+                  >
+                    <ArrowLeft color="#F8FAFC" size={20} />
+                  </TouchableOpacity>
+                  <View style={{ flex: 1, marginHorizontal: 10 }}>
+                    <Text style={styles.title} numberOfLines={1}>
+                      {selectedSong.title}
+                    </Text>
+                    <Text style={styles.artist} numberOfLines={1}>
+                      {selectedSong.artist}
+                    </Text>
+                  </View>
+
+                  {selectedSong.bpm ? (
+                    <View style={styles.bpmBadge}>
+                      <View style={[styles.bpmDot, isBeatActive && styles.bpmDotActive]} />
+                      <Text style={styles.bpmText}>{selectedSong.bpm} BPM</Text>
+                    </View>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={styles.topIconBtn}
+                    onPress={() => handleGenerateShareCode(selectedSong)}
+                  >
+                    <Share2 color="#38BDF8" size={17} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.topIconBtn}
+                    onPress={() => setIsTunerOpen(true)}
+                  >
+                    <Volume2 color="#10B981" size={17} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.topIconBtn}
+                    onPress={() => handleDeleteSong(selectedSong.id)}
+                  >
+                    <Trash2 color="#EF4444" size={17} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.controlBar}>
+                  <TouchableOpacity
+                    style={styles.toneButton}
+                    onPress={() => setIsToneModalOpen(true)}
+                  >
+                    <Text style={styles.toneLabel}>TON:</Text>
+                    <Text style={styles.toneValue}>
+                      {selectedTone || selectedSong.original_key}
+                    </Text>
+                    <ChevronDown color="#94A3B8" size={13} />
+                  </TouchableOpacity>
+
+                  <View style={styles.instrumentGroup}>
+                    {(['guitar', 'piano', 'bass'] as InstrumentType[]).map((inst) => (
+                      <TouchableOpacity
+                        key={inst}
+                        style={[
+                          styles.instrumentItemBtn,
+                          selectedInstrument === inst && styles.instrumentItemBtnActive,
+                        ]}
+                        onPress={() => setSelectedInstrument(inst)}
+                      >
+                        <Text
+                          style={[
+                            styles.instrumentLabel,
+                            selectedInstrument === inst && styles.instrumentLabelActive,
+                          ]}
+                        >
+                          {inst === 'guitar' ? 'Gitar' : inst === 'piano' ? 'Piyano' : 'Bas'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <View style={styles.transposeControls}>
+                    <TouchableOpacity
+                      style={styles.fontBtn}
+                      onPress={() => setFontSize((p) => Math.max(12, p - 1))}
+                    >
+                      <Text style={styles.fontBtnText}>A-</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.fontBtn}
+                      onPress={() => setFontSize((p) => Math.min(26, p + 1))}
+                    >
+                      <Text style={styles.fontBtnText}>A+</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.circleBtn}
+                      onPress={() => handleTranspose(-1)}
+                    >
+                      <Minus color="#FFFFFF" size={14} />
+                    </TouchableOpacity>
+                    <Text style={styles.transposeText}>
+                      {transposeValue > 0 ? `+${transposeValue}` : transposeValue}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.circleBtn}
+                      onPress={() => handleTranspose(1)}
+                    >
+                      <Plus color="#FFFFFF" size={14} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <ScrollView
+                  ref={scrollRef}
+                  style={styles.scrollArea}
+                  contentContainerStyle={styles.scrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {(selectedSong.capo || selectedSong.rhythm || selectedSong.notes) && (
+                    <View style={styles.infoCard}>
+                      <TouchableOpacity
+                        style={styles.infoHeader}
+                        onPress={() => setIsNoteCardVisible(!isNoteCardVisible)}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Bookmark color="#F59E0B" size={14} />
+                          <Text style={styles.infoCardTitle}>Sahne Notları</Text>
+                        </View>
+                        {isNoteCardVisible ? (
+                          <ChevronUp color="#94A3B8" size={14} />
+                        ) : (
+                          <ChevronDown color="#94A3B8" size={14} />
+                        )}
+                      </TouchableOpacity>
+
+                      {isNoteCardVisible && (
+                        <View style={styles.infoBody}>
+                          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                            {selectedSong.capo ? (
+                              <View style={styles.pill}>
+                                <Text style={styles.pillLabel}>KAPO:</Text>
+                                <Text style={styles.pillVal}>{selectedSong.capo}</Text>
+                              </View>
+                            ) : null}
+                            {selectedSong.rhythm ? (
+                              <View style={styles.pill}>
+                                <Text style={styles.pillLabel}>RİTİM:</Text>
+                                <Text style={styles.pillVal}>{selectedSong.rhythm}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          {selectedSong.notes ? (
+                            <Text style={styles.notesText}>{selectedSong.notes}</Text>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ minWidth: '100%' }}>
+                      {renderStageContent(
+                        transposeContent(selectedSong.content, transposeValue)
+                      )}
+                    </View>
+                  </ScrollView>
+                </ScrollView>
+
+                <View style={styles.floatingBar}>
+                  <TouchableOpacity
+                    style={[styles.scrollActionBtn, isScrolling && styles.scrollActionBtnActive]}
+                    onPress={() => setIsScrolling(!isScrolling)}
+                  >
+                    {isScrolling ? (
+                      <Pause color="#FFFFFF" size={16} />
+                    ) : (
+                      <Play color="#FFFFFF" size={16} fill="#FFFFFF" />
+                    )}
+                    <Text style={styles.scrollActionText}>
+                      {isScrolling ? 'DURDUR' : 'KAYDIR'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.speedBox}>
+                    {[1, 2, 3, 4].map((spd) => (
+                      <TouchableOpacity
+                        key={spd}
+                        style={[styles.speedBtn, scrollSpeed === spd && styles.speedBtnActive]}
+                        onPress={() => setScrollSpeed(spd)}
+                      >
+                        <Text
+                          style={[
+                            styles.speedBtnText,
+                            scrollSpeed === spd && styles.speedBtnTextActive,
+                          ]}
+                        >
+                          {spd}x
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.resetBtn}
+                    onPress={() => {
+                      setIsScrolling(false);
+                      currentScrollY.current = 0;
+                      scrollRef.current?.scrollTo({ y: 0, animated: true });
+                    }}
+                  >
+                    <RotateCcw color="#94A3B8" size={16} />
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.listHeader}>
+                  <View>
+                    <Text style={styles.mainTitle}>Morpheus Sahne</Text>
+                    <Text style={styles.subTitle}>{songs.length} Şarkı Hazır</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.addBtn}
+                    onPress={() => setIsAddModalOpen(true)}
+                  >
+                    <PlusCircle color="#FFFFFF" size={17} />
+                    <Text style={styles.addBtnText}>Şarkı Ekle</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.searchRow}>
+                  <View style={styles.searchBar}>
+                    <Search color="#64748B" size={16} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Şarkı veya sanatçı ara..."
+                      placeholderTextColor="#64748B"
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                    />
+                    {searchQuery ? (
+                      <TouchableOpacity onPress={() => setSearchQuery('')}>
+                        <X color="#64748B" size={16} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.sortToggleBtn}
+                    onPress={() =>
+                      setSortMode((prev) => (prev === 'TITLE' ? 'ARTIST' : 'TITLE'))
+                    }
+                  >
+                    <Text style={styles.sortToggleText}>
+                      {sortMode === 'TITLE' ? 'Şarkı A-Z' : 'Sanatçı A-Z'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.filterBar}
+                  contentContainerStyle={styles.filterBarContent}
+                >
+                  {[
+                    { key: 'ALL', label: 'Tümü' },
+                    { key: 'MANUAL', label: 'Manuel' },
+                    { key: 'WEB', label: 'Web' },
+                    { key: 'AI_ARRANGED', label: 'AI Aranje' },
+                    { key: 'PEER_SHARE', label: 'Paylaşılan' },
+                  ].map((item) => (
+                    <TouchableOpacity
+                      key={item.key}
+                      style={[
+                        styles.filterChip,
+                        sourceFilter === item.key && styles.filterChipActive,
+                      ]}
+                      onPress={() => setSourceFilter(item.key as SourceType)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          sourceFilter === item.key && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.alphaBar}
+                  contentContainerStyle={styles.alphaBarContent}
+                >
+                  <TouchableOpacity
+                    style={[styles.alphaChip, !selectedLetter && styles.alphaChipActive]}
+                    onPress={() => setSelectedLetter(null)}
+                  >
+                    <Text
+                      style={[styles.alphaText, !selectedLetter && styles.alphaTextActive]}
+                    >
+                      Hepsi
+                    </Text>
+                  </TouchableOpacity>
+                  {TURKISH_ALPHABET.map((char) => (
+                    <TouchableOpacity
+                      key={char}
+                      style={[
+                        styles.alphaChip,
+                        selectedLetter === char && styles.alphaChipActive,
+                      ]}
+                      onPress={() => setSelectedLetter(selectedLetter === char ? null : char)}
+                    >
+                      <Text
+                        style={[
+                          styles.alphaText,
+                          selectedLetter === char && styles.alphaTextActive,
+                        ]}
+                      >
+                        {char}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                {loading ? (
+                  <View style={styles.center}>
+                    <ActivityIndicator size="large" color="#0284C7" />
+                  </View>
+                ) : (
+                  <ScrollView style={styles.listArea}>
+                    {filteredSongs.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.songListItem}
+                        onPress={() => handleSelectSong(item)}
+                      >
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={styles.songListTitle}>{item.title}</Text>
+                            {item.source_type && item.source_type !== 'MANUAL' && (
+                              <View style={styles.sourceBadge}>
+                                <Text style={styles.sourceBadgeText}>{item.source_type}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.songListArtist}>{item.artist}</Text>
+                        </View>
+                        <View style={styles.keyBadge}>
+                          <Text style={styles.keyBadgeText}>{item.original_key}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                    {filteredSongs.length === 0 && (
+                      <Text style={styles.emptyText}>Bu filtreye uygun şarkı bulunamadı.</Text>
+                    )}
+                  </ScrollView>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* 6 HANELİ PAYLAŞIM KODU MODALI */}
+      <Modal visible={isShareModalOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.shareModalBox}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sahne Paylaşım Kodu</Text>
+              <TouchableOpacity onPress={() => setIsShareModalOpen(false)}>
+                <X color="#94A3B8" size={20} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.shareSubtitle}>
+              Grup arkadaşınız bu 6 haneli kodu girerek şarkıyı anında kendi sahnesine aktarabilir:
+            </Text>
+            <View style={styles.shareCodeCard}>
+              <Text style={styles.shareCodeDigits}>{generatedShareCode}</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* KODLA İÇERİ AKTARMA MODALI */}
+      <Modal visible={isImportModalOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.shareModalBox}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Kodla Şarkı Aktar</Text>
+              <TouchableOpacity onPress={() => setIsImportModalOpen(false)}>
+                <X color="#94A3B8" size={20} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.shareSubtitle}>
+              Arkadaşınızdan veya Web Portalı'ndan aldığınız 6 haneli kodu buraya girin:
+            </Text>
+            <TextInput
+              style={[styles.formInput, { textAlign: 'center', fontSize: 18, fontWeight: 'bold' }]}
+              placeholder="MORF-XXXXXX"
+              placeholderTextColor="#64748B"
+              value={importCodeInput}
+              onChangeText={setImportCodeInput}
+              autoCapitalize="characters"
+            />
+            <TouchableOpacity
+              style={[styles.saveBtn, isImporting && { opacity: 0.6 }]}
+              onPress={handleImportByCode}
+              disabled={isImporting}
+            >
+              <Text style={styles.saveBtnText}>
+                {isImporting ? 'Aktarılıyor...' : 'Şarkıyı Sahneye Ekle'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* AKOR POZİSYON MODALI */}
       <Modal
         visible={!!inspectedChord}
         transparent={true}
@@ -785,26 +945,6 @@ export default function App() {
                 )}
               </View>
             )}
-          </View>
-        </View>
-      </Modal>
-
-      {/* 6 HANELİ PAYLAŞIM KODU MODALI */}
-      <Modal visible={isShareModalOpen} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.shareModalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sahne Paylaşım Kodu</Text>
-              <TouchableOpacity onPress={() => setIsShareModalOpen(false)}>
-                <X color="#94A3B8" size={20} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.shareSubtitle}>
-              Grup arkadaşınız bu 6 haneli kodu girerek şarkıyı anında kendi sahnesine aktarabilir:
-            </Text>
-            <View style={styles.shareCodeCard}>
-              <Text style={styles.shareCodeDigits}>{generatedShareCode}</Text>
-            </View>
           </View>
         </View>
       </Modal>
@@ -871,7 +1011,7 @@ export default function App() {
 
             <TextInput
               style={styles.formInput}
-              placeholder="Sahne Notu (Giriş solo elektro ile)"
+              placeholder="Sahne Notu"
               placeholderTextColor="#64748B"
               value={newNotes}
               onChangeText={setNewNotes}
@@ -938,13 +1078,12 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* REFERANS SESLİ TUNER MODALI */}
       <TunerModal visible={isTunerOpen} onClose={() => setIsTunerOpen(false)} />
     </SafeAreaView>
   );
 }
 
-// Görsel Akor Diyagramları
+// Görsel Akor Bileşenleri
 function GuitarDiagram({ chord, voicingIdx, setVoicingIdx }: any) {
   const voicings = getChordVoicings(chord);
   if (!voicings || voicings.length === 0) {
@@ -1106,8 +1245,55 @@ function BassDiagram({ chord, voicingIdx, setVoicingIdx }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080C15' },
+  container: { flex: 1, backgroundColor: '#070B13' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  platformNavHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#0B1120',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
+  },
+  platformBrand: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  brandMorpheus: { color: '#F8FAFC', fontWeight: '900', fontSize: 14, letterSpacing: 1 },
+  brandMusic: { color: '#0284C7', fontWeight: '900', fontSize: 14 },
+  platformTabGroup: {
+    flexDirection: 'row',
+    backgroundColor: '#070B13',
+    padding: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    gap: 4,
+  },
+  platformTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  platformTabBtnActive: { backgroundColor: '#1E293B' },
+  platformTabText: { color: '#64748B', fontSize: 11, fontWeight: 'bold' },
+  platformTabTextActive: { color: '#38BDF8' },
+  importCodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#161F30',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  importCodeBtnText: { color: '#38BDF8', fontSize: 11, fontWeight: 'bold' },
+
   mainWrapper: { flex: 1, alignItems: 'center', width: '100%' },
   contentCard: {
     flex: 1,
@@ -1119,7 +1305,6 @@ const styles = StyleSheet.create({
     borderColor: '#1E293B',
   },
 
-  // Sahne Başlığı
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1146,7 +1331,6 @@ const styles = StyleSheet.create({
   bpmText: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold' },
   topIconBtn: { padding: 6, backgroundColor: '#1E293B', borderRadius: 6, marginLeft: 6 },
 
-  // Kontrol Barı
   controlBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1196,13 +1380,12 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#0284C7',
     justifyContent: 'center',
     alignItems: 'center',
   },
   transposeText: { fontSize: 12, fontWeight: 'bold', color: '#F8FAFC', minWidth: 20, textAlign: 'center' },
 
-  // Sahne Alanı & Hizalama
   scrollArea: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 110 },
   infoCard: {
@@ -1236,7 +1419,6 @@ const styles = StyleSheet.create({
   clickableChord: { color: '#F87171', fontWeight: 'bold', cursor: 'pointer' as any },
   lyricsText: { color: '#F1F5F9', lineHeight: 22 },
 
-  // Yüzen Auto-Scroll Barı
   floatingBar: {
     position: 'absolute',
     bottom: 16,
@@ -1264,12 +1446,11 @@ const styles = StyleSheet.create({
   scrollActionText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 11 },
   speedBox: { flexDirection: 'row', backgroundColor: '#1E293B', borderRadius: 6, padding: 2, gap: 2 },
   speedBtn: { paddingVertical: 4, paddingHorizontal: 7, borderRadius: 4 },
-  speedBtnActive: { backgroundColor: '#4F46E5' },
+  speedBtnActive: { backgroundColor: '#0284C7' },
   speedBtnText: { color: '#94A3B8', fontSize: 10, fontWeight: 'bold' },
   speedBtnTextActive: { color: '#FFFFFF' },
   resetBtn: { padding: 6, backgroundColor: '#1E293B', borderRadius: 6 },
 
-  // Repertuvar Listesi
   listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1283,7 +1464,7 @@ const styles = StyleSheet.create({
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#0284C7',
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 6,
@@ -1322,7 +1503,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1E293B',
   },
-  filterChipActive: { backgroundColor: '#4F46E5', borderColor: '#6366F1' },
+  filterChipActive: { backgroundColor: '#0284C7', borderColor: '#38BDF8' },
   filterChipText: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold' },
   filterChipTextActive: { color: '#FFFFFF' },
 
@@ -1363,7 +1544,6 @@ const styles = StyleSheet.create({
   keyBadgeText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 11 },
   emptyText: { color: '#64748B', textAlign: 'center', marginTop: 30, fontSize: 12 },
 
-  // Modallar
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.75)',
@@ -1398,7 +1578,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#4F46E5',
+    borderColor: '#0284C7',
   },
   shareCodeDigits: { color: '#38BDF8', fontSize: 22, fontWeight: '900', letterSpacing: 2 },
   addModalContent: {
@@ -1424,7 +1604,7 @@ const styles = StyleSheet.create({
     outlineStyle: 'none',
   } as any,
   textArea: { height: 120, textAlignVertical: 'top', fontFamily: MONO_FONT },
-  saveBtn: { backgroundColor: '#4F46E5', paddingVertical: 10, borderRadius: 6, alignItems: 'center', marginTop: 4 },
+  saveBtn: { backgroundColor: '#0284C7', paddingVertical: 10, borderRadius: 6, alignItems: 'center', marginTop: 4 },
   saveBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
   modalContent: {
     backgroundColor: '#1E293B',
@@ -1446,11 +1626,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
-  selectedToneGridItem: { backgroundColor: '#4F46E5', borderColor: '#6366F1' },
+  selectedToneGridItem: { backgroundColor: '#0284C7', borderColor: '#38BDF8' },
   toneGridText: { fontSize: 12, fontWeight: '600', color: '#F8FAFC' },
   selectedToneGridText: { color: '#FFFFFF' },
 
-  // Şema Çizimleri
   voicingNav: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   vNavBtn: { backgroundColor: '#0F172A', padding: 4, borderRadius: 4 },
   vNavText: { color: '#38BDF8', fontSize: 10, fontWeight: 'bold' },
