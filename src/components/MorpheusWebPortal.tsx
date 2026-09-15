@@ -10,13 +10,26 @@ import {
   Platform,
   Modal,
   TouchableWithoutFeedback,
+  Pressable,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { transposeContent, transposeChord, isChordLine, CHORD_REGEX_STR } from '../utils/chordEngine';
+import { transposeContent, transposeChord, isChordLine } from '../utils/chordEngine';
 import { getChordVoicings } from '../utils/chordDiagrams';
 import { getPianoKeysForChord, PIANO_KEYS_2_OCTAVES } from '../utils/pianoDiagrams';
 import { getBassVoicings } from '../utils/bassDiagrams';
 import { reharmonizeWithAI, MUSIC_STYLES, MusicStyle } from '../services/aiArranger';
+import AdminPanelModal from './AdminPanelModal';
+import EventsModal from './EventsModal';
+import ForumModal from './ForumModal';
+import CoursesModal from './CoursesModal';
+import StoreModal from './StoreModal';
+import SubscriptionModal from './SubscriptionModal';
+import {
+  loginWithEmail,
+  registerUser,
+  getCurrentUserProfile,
+  UserProfile,
+} from '../services/authService';
 import {
   Search,
   Share2,
@@ -30,7 +43,6 @@ import {
   Calendar,
   ShoppingBag,
   X,
-  Clock,
   Star,
   Flame,
   Eye,
@@ -38,6 +50,10 @@ import {
   ChevronRight,
   ChevronLeft,
   Lock,
+  ShieldAlert,
+  LogIn,
+  UserPlus,
+  Check,
 } from 'lucide-react-native';
 
 interface Song {
@@ -67,6 +83,7 @@ interface Props {
 }
 
 type InstrumentType = 'guitar' | 'piano' | 'bass';
+type AuthModalTab = 'LOGIN' | 'REGISTER';
 
 const TURKISH_ALPHABET = [
   'A', 'B', 'C', 'Ç', 'D', 'E', 'F', 'G', 'H', 'I', 'İ',
@@ -96,9 +113,31 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Web Üyelik Durumu (Free / Premium)
-  const [isWebPremium, setIsWebPremium] = useState(false);
-  const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
+  // Oturum Durumları
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isEventsModalOpen, setIsEventsModalOpen] = useState(false);
+  const [isForumModalOpen, setIsForumModalOpen] = useState(false);
+  const [isCoursesModalOpen, setIsCoursesModalOpen] = useState(false);
+  const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+
+  // Giriş / Kayıt Modal
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authTab, setAuthTab] = useState<AuthModalTab>('LOGIN');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authFullName, setAuthFullName] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Katman Kontrolleri
+  const isVisitor = !currentUserProfile;
+  const isBasic = currentUserProfile?.membership_tier === 'BASIC';
+  const isWebPremium =
+    currentUserProfile?.membership_tier === 'PREMIUM' ||
+    currentUserProfile?.is_master_admin ||
+    false;
+
   const [webInstrument, setWebInstrument] = useState<InstrumentType>('guitar');
 
   // Filtreler
@@ -118,7 +157,7 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
   const [userVoted, setUserVoted] = useState(false);
 
   // AI Aranjör State'leri
-  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => {
+  const [geminiApiKey] = useState<string>(() => {
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
       return localStorage.getItem('morpheus_gemini_api_key') || '';
     }
@@ -128,15 +167,117 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
   const [isArranging, setIsArranging] = useState(false);
   const [arrangingStatus, setArrangingStatus] = useState('');
 
-  // "Yakında" Modalı
-  const [comingSoonFeature, setComingSoonFeature] = useState<{
-    title: string;
-    description: string;
-  } | null>(null);
-
   useEffect(() => {
     fetchWebSongs();
+
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const profile = await getCurrentUserProfile(session.user.id);
+          if (profile) {
+            setCurrentUserProfile(profile);
+          } else {
+            setCurrentUserProfile({
+              id: session.user.id,
+              email: session.user.email || '',
+              full_name: session.user.user_metadata?.full_name || '',
+              membership_tier: 'BASIC',
+              is_master_admin: session.user.email === 'master@360bct.com',
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Oturum başlatılırken hata:', err);
+      }
+    };
+
+    initAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const profile = await getCurrentUserProfile(session.user.id);
+        if (profile) {
+          setCurrentUserProfile(profile);
+        } else {
+          setCurrentUserProfile({
+            id: session.user.id,
+            email: session.user.email || '',
+            full_name: session.user.user_metadata?.full_name || '',
+            membership_tier: 'BASIC',
+            is_master_admin: session.user.email === 'master@360bct.com',
+          });
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentUserProfile(null);
+      }
+    });
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
+
+  const handleAuthAction = async () => {
+    if (!authEmail.trim() || !authPassword.trim()) {
+      alert('Lütfen e-posta ve şifrenizi girin.');
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+
+      if (authTab === 'LOGIN') {
+        const user = await loginWithEmail(authEmail, authPassword);
+        if (user) {
+          const profile = await getCurrentUserProfile(user.id);
+          setCurrentUserProfile(
+            profile || {
+              id: user.id,
+              email: user.email!,
+              full_name: user.user_metadata?.full_name || '',
+              membership_tier: 'BASIC',
+              is_master_admin: user.email === 'master@360bct.com',
+            }
+          );
+          setIsAuthModalOpen(false);
+          setAuthPassword('');
+        }
+      } else {
+        if (!authFullName.trim()) {
+          alert('Lütfen adınızı ve soyadınızı girin.');
+          setAuthLoading(false);
+          return;
+        }
+
+        const user = await registerUser(authEmail, authPassword, authFullName);
+        if (user) {
+          const profile = await getCurrentUserProfile(user.id);
+          setCurrentUserProfile(
+            profile || {
+              id: user.id,
+              email: user.email!,
+              full_name: authFullName,
+              membership_tier: 'BASIC',
+              is_master_admin: false,
+            }
+          );
+          setIsAuthModalOpen(false);
+          setAuthPassword('');
+          alert('Basic üyeliğiniz oluşturuldu ve oturumunuz açıldı!');
+        }
+      }
+    } catch (err: any) {
+      alert(err.message || 'İşlem sırasında bir hata oluştu.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setCurrentUserProfile(null);
+  };
 
   const fetchWebSongs = async () => {
     try {
@@ -144,12 +285,21 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
       const { data, error } = await supabase
         .from('morfeus_songs')
         .select('*')
-        .order('rating_avg', { ascending: false });
+        .order('id', { ascending: false });
 
       if (error) throw error;
-      if (data) {
-        setSongs(data);
-        if (data.length > 0) selectSongForView(data[0]);
+      if (data && data.length > 0) {
+        const sanitized = data.map((s) => ({
+          ...s,
+          genre: s.genre || 'Rock',
+          release_year: s.release_year || 2000,
+          origin: s.origin || 'DOMESTIC',
+          rating_avg: s.rating_avg ?? 5.0,
+          rating_count: s.rating_count ?? 1,
+          view_count: s.view_count ?? 1,
+        }));
+        setSongs(sanitized);
+        selectSongForView(sanitized[0]);
       }
     } catch (err) {
       console.error('Web kütüphanesi yüklenirken hata:', err);
@@ -177,6 +327,12 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
   };
 
   const handleRateSong = async (stars: number) => {
+    if (isVisitor) {
+      setAuthTab('REGISTER');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     if (!selectedSong || userVoted) return;
     try {
       setUserVoted(true);
@@ -210,8 +366,18 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
         },
       ]);
       if (error) throw error;
+
+      try {
+        if (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) {
+          await window.navigator.clipboard.writeText(code);
+        }
+      } catch (clipErr) {
+        console.warn('Panoya kopyalanamadı:', clipErr);
+      }
+
       setCopiedCode(code);
-      setTimeout(() => setCopiedCode(null), 5000);
+      alert(`Paylaşım Kodu: ${code}\n\nKod panoya kopyalandı! Sahne İstasyonu'nda "Kod ile İçe Aktar" alanına yapıştırabilirsiniz.`);
+      setTimeout(() => setCopiedCode(null), 8000);
     } catch (err: any) {
       alert('Paylaşım kodu oluşturulamadı: ' + err.message);
     }
@@ -219,7 +385,7 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
 
   const handleOpenAiModal = () => {
     if (!isWebPremium) {
-      setIsPremiumModalOpen(true);
+      setIsSubscriptionModalOpen(true);
       return;
     }
     setIsAiModalOpen(true);
@@ -254,7 +420,7 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
             bpm: selectedSong.bpm || 100,
             capo: selectedSong.capo || 'Yok',
             rhythm: result.rhythm,
-            notes: `Gemini 3.6 Flash ile ${style} tarzında re-harmonize edildi. Orijinal: ${selectedSong.title}`,
+            notes: `Gemini ile ${style} tarzında re-harmonize edildi. Orijinal: ${selectedSong.title}`,
             content: result.newContent,
             genre: style === 'JAZZ' ? 'Caz/Blues' : style === 'ARABESK' ? 'Arabesk' : 'Akustik',
             origin: selectedSong.origin || 'DOMESTIC',
@@ -285,7 +451,6 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
     }
   };
 
-  // Şarkı İçindeki Benzersiz Akorları Çıkaran Fonksiyon (2. Madde)
   const currentSongChords = useMemo(() => {
     if (!selectedSong) return [];
     const transposed = transposeContent(selectedSong.content, transposeValue);
@@ -369,54 +534,46 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
     });
   };
 
+  // HATASIZ VE NULL-GÜVENLİ FİLTRE MOTORU
   const processedSongs = useMemo(() => {
-    let result = songs.filter((s) => {
-      const matchSearch =
-        s.title.toLocaleLowerCase('tr').includes(searchQuery.toLocaleLowerCase('tr')) ||
-        s.artist.toLocaleLowerCase('tr').includes(searchQuery.toLocaleLowerCase('tr'));
-      if (!matchSearch) return false;
+    if (!songs || songs.length === 0) return [];
 
-      if (selectedLetter && !s.title.trim().toLocaleUpperCase('tr').startsWith(selectedLetter)) {
-        return false;
+    let result = songs.filter((s) => {
+      const q = searchQuery.trim().toLocaleLowerCase('tr');
+      if (q) {
+        const titleMatch = (s.title || '').toLocaleLowerCase('tr').includes(q);
+        const artistMatch = (s.artist || '').toLocaleLowerCase('tr').includes(q);
+        if (!titleMatch && !artistMatch) return false;
       }
-      if (selectedGenre !== 'Tümü' && s.genre !== selectedGenre) return false;
-      if (selectedOrigin !== 'ALL' && s.origin !== selectedOrigin) return false;
+
+      if (selectedLetter) {
+        const firstLetter = (s.title || '').trim().toLocaleUpperCase('tr').charAt(0);
+        if (firstLetter !== selectedLetter) return false;
+      }
+
+      if (selectedGenre !== 'Tümü') {
+        if (!s.genre || s.genre !== selectedGenre) return false;
+      }
+
+      if (selectedOrigin !== 'ALL') {
+        if (!s.origin || s.origin !== selectedOrigin) return false;
+      }
 
       if (selectedDecade !== 'Tüm Yıllar') {
         const dec = DECADES.find((d) => d.label === selectedDecade);
-        if (dec && ((s.release_year || 2000) < dec.min || (s.release_year || 2000) > dec.max)) {
+        const year = Number(s.release_year) || 2000;
+        if (dec && (year < dec.min || year > dec.max)) {
           return false;
         }
       }
+
       return true;
     });
 
-    const isArtistSearch =
-      searchQuery.trim().length > 0 &&
-      result.some((s) => s.artist.toLocaleLowerCase('tr').includes(searchQuery.toLocaleLowerCase('tr')));
-
-    if (isArtistSearch) {
-      const groupedByTitle: { [key: string]: Song[] } = {};
-      result.forEach((s) => {
-        const key = s.title.toLocaleLowerCase('tr').trim();
-        if (!groupedByTitle[key]) groupedByTitle[key] = [];
-        groupedByTitle[key].push(s);
-      });
-
-      const limited: Song[] = [];
-      Object.keys(groupedByTitle).forEach((k) => {
-        const sortedVersions = groupedByTitle[k].sort(
-          (a, b) => (b.rating_avg || 0) - (a.rating_avg || 0)
-        );
-        limited.push(...sortedVersions.slice(0, 3));
-      });
-      result = limited;
-    }
-
     if (sortByPopularity) {
-      return result.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
+      return [...result].sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
     }
-    return result.sort((a, b) => (b.rating_avg || 0) - (a.rating_avg || 0));
+    return [...result].sort((a, b) => (Number(b.rating_avg) || 0) - (Number(a.rating_avg) || 0));
   }, [
     songs,
     searchQuery,
@@ -429,94 +586,119 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
 
   return (
     <View style={styles.outerContainer}>
-      {/* 1. ÜST LİNKLER */}
       <View style={styles.subNavBar}>
         <View style={styles.subNavBarInner}>
           <View style={styles.subNavLinks}>
-            <TouchableOpacity
-              style={styles.subNavLinkItem}
-              onPress={() =>
-                setComingSoonFeature({
-                  title: 'Morpheus Müzik Kursları',
-                  description: 'Canlı ve video kayıtlı enstrüman eğitimleri ve workshoplar çok yakında.',
-                })
-              }
-            >
-              <GraduationCap color="#94A3B8" size={14} />
-              <Text style={styles.subNavLinkText}>Kurslar</Text>
-              <View style={styles.soonPill}><Text style={styles.soonPillText}>YAKINDA</Text></View>
+            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsCoursesModalOpen(true)}>
+              <GraduationCap color="#38BDF8" size={14} />
+              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Kurslar</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.subNavLinkItem}
-              onPress={() =>
-                setComingSoonFeature({
-                  title: 'Müzisyenler Forumu',
-                  description: 'Akor analizleri ve topluluk tartışma alanı çok yakında devrede.',
-                })
-              }
-            >
-              <MessageSquare color="#94A3B8" size={14} />
-              <Text style={styles.subNavLinkText}>Forum</Text>
-              <View style={styles.soonPill}><Text style={styles.soonPillText}>YAKINDA</Text></View>
+            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsForumModalOpen(true)}>
+              <MessageSquare color="#38BDF8" size={14} />
+              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Forum</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.subNavLinkItem}
-              onPress={() =>
-                setComingSoonFeature({
-                  title: 'Sahne & Konser Etkinlikleri',
-                  description: 'Jam session geceleri ve canlı müzik duyuruları yakında burada.',
-                })
-              }
-            >
-              <Calendar color="#94A3B8" size={14} />
-              <Text style={styles.subNavLinkText}>Etkinlikler</Text>
-              <View style={styles.soonPill}><Text style={styles.soonPillText}>YAKINDA</Text></View>
+            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsEventsModalOpen(true)}>
+              <Calendar color="#38BDF8" size={14} />
+              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Etkinlikler</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.subNavLinkItem}
-              onPress={() =>
-                setComingSoonFeature({
-                  title: 'Morpheus Mağaza',
-                  description: 'Müzisyen aksesuarları ve sahne ekipmanları yakında yayında.',
-                })
-              }
-            >
-              <ShoppingBag color="#94A3B8" size={14} />
-              <Text style={styles.subNavLinkText}>Mağaza</Text>
-              <View style={styles.soonPill}><Text style={styles.soonPillText}>YAKINDA</Text></View>
+            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsStoreModalOpen(true)}>
+              <ShoppingBag color="#38BDF8" size={14} />
+              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Mağaza</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Test Amaçlı Web Premium Toggle */}
-          <TouchableOpacity
-            style={[styles.webPremiumToggle, isWebPremium && styles.webPremiumToggleActive]}
-            onPress={() => setIsWebPremium(!isWebPremium)}
-          >
-            <Crown color={isWebPremium ? '#F59E0B' : '#64748B'} size={13} />
-            <Text style={[styles.webPremiumToggleText, isWebPremium && { color: '#F59E0B' }]}>
-              {isWebPremium ? 'Web Premium: Aktif' : 'Web: Standart (Free)'}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {currentUserProfile?.is_master_admin && (
+              <TouchableOpacity style={styles.adminTriggerBtn} onPress={() => setIsAdminPanelOpen(true)}>
+                <ShieldAlert color="#38BDF8" size={13} />
+                <Text style={styles.adminTriggerText}>Admin Paneli</Text>
+              </TouchableOpacity>
+            )}
+
+            {currentUserProfile ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!isWebPremium) setIsSubscriptionModalOpen(true);
+                  }}
+                  style={[
+                    styles.userStatusPill,
+                    isWebPremium && { borderColor: '#F59E0B', backgroundColor: '#312E81' },
+                    isBasic && { borderColor: '#38BDF8', backgroundColor: '#0C4A6E' },
+                  ]}
+                >
+                  <Crown
+                    color={currentUserProfile.is_master_admin ? '#F59E0B' : isWebPremium ? '#F59E0B' : '#38BDF8'}
+                    size={12}
+                  />
+                  <Text style={styles.userStatusText}>
+                    {currentUserProfile.is_master_admin
+                      ? 'Master Admin'
+                      : currentUserProfile.membership_tier === 'PREMIUM'
+                      ? `${currentUserProfile.full_name || 'Üye'} (PRO)`
+                      : `${currentUserProfile.full_name || 'Üye'} (BASIC)`}
+                  </Text>
+                </TouchableOpacity>
+
+                {isBasic && (
+                  <TouchableOpacity
+                    style={styles.upgradeTopBtn}
+                    onPress={() => setIsSubscriptionModalOpen(true)}
+                  >
+                    <Sparkles color="#F59E0B" size={11} />
+                    <Text style={styles.upgradeTopBtnText}>Yükselt</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+                  <Text style={styles.logoutText}>Çıkış</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  style={styles.loginTriggerBtn}
+                  onPress={() => {
+                    setAuthTab('LOGIN');
+                    setIsAuthModalOpen(true);
+                  }}
+                >
+                  <LogIn color="#CBD5E1" size={12} />
+                  <Text style={styles.loginTriggerText}>Giriş Yap</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.registerTriggerBtn}
+                  onPress={() => {
+                    setAuthTab('REGISTER');
+                    setIsAuthModalOpen(true);
+                  }}
+                >
+                  <UserPlus color="#FFFFFF" size={12} />
+                  <Text style={styles.registerTriggerText}>Kayıt Ol</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {!isWebPremium && (
+        <View style={styles.topAdSection}>
+          <View style={styles.adBox728}>
+            <Text style={styles.adTag}>REKLAM (728x90)</Text>
+            <Text style={styles.adMessage} numberOfLines={1}>
+              Morpheus Sahne Omurgası • Profesyonel Canlı Performans İstasyonu & Akor Veritabanı
             </Text>
-          </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      )}
 
-      {/* 2. 728x90 STANDART REKLAM ALANI */}
-      <View style={styles.topAdSection}>
-        <View style={styles.adBox728}>
-          <Text style={styles.adTag}>REKLAM (728x90)</Text>
-          <Text style={styles.adMessage} numberOfLines={1}>
-            Morpheus Sahne Omurgası • Profesyonel Canlı Performans İstasyonu & Akor Veritabanı
-          </Text>
-        </View>
-      </View>
-
-      {/* 3. MERKEZİ 1280px GÖVDE */}
       <View style={styles.centerContainerWrapper}>
         <View style={styles.mainContainer1280}>
-          {/* SOL KOLON: FİLTRELER & LİSTE */}
           <View style={styles.leftColumn}>
             <View style={styles.leftHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -577,7 +759,7 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                   style={[styles.genreChip, selectedGenre === g && styles.genreChipActive]}
                   onPress={() => setSelectedGenre(g)}
                 >
-                  <Text style={[styles.genreText, selectedGenre === g && styles.genreTextActive]}>{g}</Text>
+                  <Text style={[styles.genreText, selectedGenre === g && styles.genreChipActive && { color: '#FFFFFF' }]}>{g}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -655,7 +837,6 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
             )}
           </View>
 
-          {/* ORTA KOLON: AKOR OKUYUCU */}
           <View style={styles.centerColumn}>
             {selectedSong ? (
               <>
@@ -685,11 +866,25 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={styles.bridgeBtn}
+                      style={[
+                        styles.bridgeBtn,
+                        copiedCode && { borderColor: '#10B981', backgroundColor: '#064E3B' },
+                      ]}
                       onPress={() => handleShareToApp(selectedSong)}
                     >
-                      <Share2 color="#38BDF8" size={13} />
-                      <Text style={styles.bridgeBtnText}>{copiedCode ? copiedCode : 'Paylaşım Kodu'}</Text>
+                      {copiedCode ? (
+                        <>
+                          <Check color="#34D399" size={13} />
+                          <Text style={[styles.bridgeBtnText, { color: '#34D399' }]}>
+                            {copiedCode} (Kopyalandı)
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Share2 color="#38BDF8" size={13} />
+                          <Text style={styles.bridgeBtnText}>Paylaşım Kodu</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -702,7 +897,6 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                   </View>
                 </View>
 
-                {/* 5 Yıldız & Sayaç */}
                 <View style={styles.ratingBar}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={styles.rateLabel}>Akor Puanı:</Text>
@@ -710,22 +904,23 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                       {[1, 2, 3, 4, 5].map((star) => {
                         const filled = (hoveredStar ?? Math.round(selectedSong.rating_avg || 5)) >= star;
                         return (
-                          <TouchableOpacity
+                          <Pressable
                             key={star}
                             disabled={userVoted}
                             onPress={() => handleRateSong(star)}
-                            onMouseEnter={() => !userVoted && setHoveredStar(star)}
-                            onMouseLeave={() => !userVoted && setHoveredStar(null)}
+                            onHoverIn={() => !userVoted && setHoveredStar(star)}
+                            onHoverOut={() => !userVoted && setHoveredStar(null)}
                           >
                             <Star color="#F59E0B" fill={filled ? '#F59E0B' : 'transparent'} size={15} />
-                          </TouchableOpacity>
+                          </Pressable>
                         );
                       })}
                     </View>
                     <Text style={styles.ratingDetailText}>
                       {Number(selectedSong.rating_avg || 5).toFixed(2)} ({selectedSong.rating_count || 1} oy)
                     </Text>
-                    {userVoted && <Text style={styles.votedNotice}>Oyunuz alındı!</Text>}
+                    {isVisitor && <Text style={styles.visitorNotice}>(Puanlamak için üye olun)</Text>}
+                    {userVoted && <Text style={styles.votedNotice}>Oyunuz kaydedildi!</Text>}
                   </View>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -734,7 +929,6 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                   </View>
                 </View>
 
-                {/* Kontroller */}
                 <View style={styles.readerControls}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <View style={styles.tonDisplay}>
@@ -765,13 +959,11 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                 </View>
 
                 <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
-                  {/* 2. ve 3. MADDE: ŞARKI İÇİNDEKİ AKOR TABLARI / ŞEMALARI BARİ */}
                   {currentSongChords.length > 0 && (
                     <View style={styles.chordsPreviewSection}>
                       <View style={styles.chordsPreviewHeader}>
                         <Text style={styles.chordsPreviewTitle}>Parçada Geçen Akorlar</Text>
 
-                        {/* 3. Madde: Web Premium ise Enstrüman Seçimi Açılır */}
                         {isWebPremium ? (
                           <View style={styles.webInstGroup}>
                             {(['guitar', 'piano', 'bass'] as InstrumentType[]).map((inst) => (
@@ -795,10 +987,13 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
                             ))}
                           </View>
                         ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                            <Lock color="#64748B" size={11} />
-                            <Text style={{ color: '#64748B', fontSize: 10 }}>Piyano & Bas (Premium)</Text>
-                          </View>
+                          <TouchableOpacity
+                            style={styles.premiumInstPrompt}
+                            onPress={() => setIsSubscriptionModalOpen(true)}
+                          >
+                            <Lock color="#F59E0B" size={11} />
+                            <Text style={styles.premiumInstPromptText}>Piyano & Bas Şemalarını Aç (Pro)</Text>
+                          </TouchableOpacity>
                         )}
                       </View>
 
@@ -827,71 +1022,179 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
             )}
           </View>
 
-          {/* SAĞ KOLON: 300x600 SPONSOR ALANI */}
-          <View style={styles.rightColumn}>
-            <View style={styles.adSkyscraper300x600}>
-              <Text style={styles.adTag}>SPONSOR ALANI (300x600)</Text>
+          {!isWebPremium && (
+            <View style={styles.rightColumn}>
+              <View style={styles.adSkyscraper300x600}>
+                <Text style={styles.adTag}>SPONSOR ALANI (300x600)</Text>
 
-              <View style={styles.sponsorCleanBox}>
-                <Crown color="#38BDF8" size={32} />
-                <Text style={styles.sponsorCleanTitle}>Morpheus Pro Sahne</Text>
-                <Text style={styles.sponsorCleanText}>
-                  Gitaristler ve sahne müzisyenleri için akıllı repertuvar, transpoze ve canlı tuner istasyonu.
-                </Text>
+                <View style={styles.sponsorCleanBox}>
+                  <Crown color="#38BDF8" size={32} />
+                  <Text style={styles.sponsorCleanTitle}>Morpheus Pro Sahne</Text>
+                  <Text style={styles.sponsorCleanText}>
+                    Gitaristler ve sahne müzisyenleri için akıllı repertuvar, transpoze ve canlı tuner istasyonu.
+                  </Text>
 
-                <View style={styles.sponsorBannerLine} />
+                  <View style={styles.sponsorBannerLine} />
 
-                <Text style={styles.sponsorBrandFoot}>360DESK MÜZİK TEKNOLOJİLERİ</Text>
+                  <TouchableOpacity
+                    style={styles.adUpgradeBtn}
+                    onPress={() => setIsSubscriptionModalOpen(true)}
+                  >
+                    <Text style={styles.adUpgradeBtnText}>Reklamları Kaldır (Pro'ya Geç)</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.sponsorBrandFoot}>360DESK MÜZİK TEKNOLOJİLERİ</Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
         </View>
       </View>
 
-      {/* WEB PREMİUM GEREKLİ MODALI (DIŞARI TIKLAYINCA KAPANIR) */}
-      <Modal visible={isPremiumModalOpen} transparent animationType="fade" onRequestClose={() => setIsPremiumModalOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsPremiumModalOpen(false)}>
+      <AdminPanelModal visible={isAdminPanelOpen} onClose={() => setIsAdminPanelOpen(false)} />
+
+      <EventsModal
+        visible={isEventsModalOpen}
+        onClose={() => setIsEventsModalOpen(false)}
+        currentUser={currentUserProfile}
+        onOpenAuth={() => {
+          setAuthTab('LOGIN');
+          setIsAuthModalOpen(true);
+        }}
+      />
+
+      <ForumModal
+        visible={isForumModalOpen}
+        onClose={() => setIsForumModalOpen(false)}
+        currentUser={currentUserProfile}
+        onOpenAuth={() => {
+          setAuthTab('LOGIN');
+          setIsAuthModalOpen(true);
+        }}
+      />
+
+      <CoursesModal
+        visible={isCoursesModalOpen}
+        onClose={() => setIsCoursesModalOpen(false)}
+        currentUser={currentUserProfile}
+        onOpenAuth={() => {
+          setAuthTab('LOGIN');
+          setIsAuthModalOpen(true);
+        }}
+      />
+
+      <StoreModal
+        visible={isStoreModalOpen}
+        onClose={() => setIsStoreModalOpen(false)}
+        currentUser={currentUserProfile}
+        onOpenAuth={() => {
+          setAuthTab('LOGIN');
+          setIsAuthModalOpen(true);
+        }}
+      />
+
+      <SubscriptionModal
+        visible={isSubscriptionModalOpen}
+        onClose={() => setIsSubscriptionModalOpen(false)}
+        currentUser={currentUserProfile}
+        onSuccess={() => {
+          if (currentUserProfile) {
+            setCurrentUserProfile({
+              ...currentUserProfile,
+              membership_tier: 'PREMIUM',
+            });
+          }
+        }}
+        onOpenAuth={() => {
+          setAuthTab('LOGIN');
+          setIsAuthModalOpen(true);
+        }}
+      />
+
+      <Modal visible={isAuthModalOpen} transparent animationType="fade" onRequestClose={() => setIsAuthModalOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setIsAuthModalOpen(false)}>
           <View style={styles.modalBackdrop}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.premiumGateBox}>
+              <View style={styles.loginModalBox}>
                 <View style={styles.modalCardHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Crown color="#F59E0B" size={20} />
-                    <Text style={styles.modalCardTitle}>Web Premium Özelliği</Text>
+                  <View style={styles.authTabSwitcher}>
+                    <TouchableOpacity
+                      style={[styles.authTabItem, authTab === 'LOGIN' && styles.authTabItemActive]}
+                      onPress={() => setAuthTab('LOGIN')}
+                    >
+                      <Text style={[styles.authTabLabel, authTab === 'LOGIN' && styles.authTabLabelActive]}>
+                        Giriş Yap
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.authTabItem, authTab === 'REGISTER' && styles.authTabItemActive]}
+                      onPress={() => setAuthTab('REGISTER')}
+                    >
+                      <Text style={[styles.authTabLabel, authTab === 'REGISTER' && styles.authTabLabelActive]}>
+                        Kayıt Ol (Ücretsiz)
+                      </Text>
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity onPress={() => setIsPremiumModalOpen(false)}>
+
+                  <TouchableOpacity onPress={() => setIsAuthModalOpen(false)}>
                     <X color="#94A3B8" size={18} />
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.premiumGateDesc}>
-                  AI Tarz Aranjörü ve tüm enstrüman şemaları (Piyano, Bas, Gitar Pozisyonları) yalnızca <Text style={{ color: '#F59E0B', fontWeight: 'bold' }}>Morpheus Premium</Text> üyelerimize özeldir.
-                </Text>
+                {authTab === 'REGISTER' && (
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="Adınız ve Soyadınız"
+                    placeholderTextColor="#64748B"
+                    value={authFullName}
+                    onChangeText={setAuthFullName}
+                  />
+                )}
 
-                <View style={styles.premiumFeatureList}>
-                  <Text style={styles.premiumFeatureItem}>✓ Sınırsız Gemini AI Tarz Aranjmanı</Text>
-                  <Text style={styles.premiumFeatureItem}>✓ Gitar, Bas ve Piyano Akor Pozisyonları</Text>
-                  <Text style={styles.premiumFeatureItem}>✓ Reklamsız Deneyim & Canlı Akort Osilatörü</Text>
-                </View>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="E-posta adresi"
+                  placeholderTextColor="#64748B"
+                  value={authEmail}
+                  onChangeText={setAuthEmail}
+                  autoCapitalize="none"
+                />
+
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Şifre"
+                  placeholderTextColor="#64748B"
+                  value={authPassword}
+                  onChangeText={setAuthPassword}
+                  secureTextEntry
+                />
 
                 <TouchableOpacity
-                  style={styles.premiumCtaBtn}
-                  onPress={() => {
-                    setIsWebPremium(true);
-                    setIsPremiumModalOpen(false);
-                    setIsAiModalOpen(true);
-                  }}
+                  style={[styles.modalConfirmBtn, authLoading && { opacity: 0.6 }]}
+                  disabled={authLoading}
+                  onPress={handleAuthAction}
                 >
-                  <Crown color="#0F172A" size={16} />
-                  <Text style={styles.premiumCtaBtnText}>Premium'a Yükselt (Test Et)</Text>
+                  <Text style={styles.modalConfirmBtnText}>
+                    {authLoading
+                      ? 'İşleniyor...'
+                      : authTab === 'LOGIN'
+                      ? 'Oturum Aç'
+                      : 'Basic Hesabımı Oluştur'}
+                  </Text>
                 </TouchableOpacity>
+
+                {authTab === 'REGISTER' && (
+                  <Text style={styles.authNoticeFooter}>
+                    Kayıt olduğunuzda akorları oylayabilir, parçaları kendi listenize kaydedebilirsiniz.
+                  </Text>
+                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* AI TARZ SEÇİM MODALI (DIŞARI TIKLAYINCA KAPANIR) */}
       <Modal visible={isAiModalOpen} transparent animationType="slide" onRequestClose={() => !isArranging && setIsAiModalOpen(false)}>
         <TouchableWithoutFeedback onPress={() => !isArranging && setIsAiModalOpen(false)}>
           <View style={styles.modalBackdrop}>
@@ -944,44 +1247,15 @@ export default function MorpheusWebPortal({ onSendToStage }: Props) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-
-      {/* YAKINDA MODALI */}
-      <Modal visible={!!comingSoonFeature} transparent animationType="fade" onRequestClose={() => setComingSoonFeature(null)}>
-        <TouchableWithoutFeedback onPress={() => setComingSoonFeature(null)}>
-          <View style={styles.modalBackdrop}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.modalCard}>
-                <View style={styles.modalCardHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Clock color="#F59E0B" size={16} />
-                    <Text style={styles.modalCardTitle}>{comingSoonFeature?.title}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setComingSoonFeature(null)}>
-                    <X color="#94A3B8" size={18} />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.modalCardBodyText}>{comingSoonFeature?.description}</Text>
-                <TouchableOpacity style={styles.modalConfirmBtn} onPress={() => setComingSoonFeature(null)}>
-                  <Text style={styles.modalConfirmBtnText}>Tamam</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
     </View>
   );
 }
 
-// 2. ve 3. MADDE: WEB İÇİN MİNİ AKOR ŞEMALARI
 function MiniGuitarChord({ chord, isPremium }: { chord: string; isPremium: boolean }) {
   const voicings = getChordVoicings(chord);
   const [voicingIdx, setVoicingIdx] = useState(0);
 
-  if (!voicings || voicings.length === 0) {
-    return <Text style={{ color: '#64748B', fontSize: 10 }}>-</Text>;
-  }
-
+  if (!voicings || voicings.length === 0) return <Text style={{ color: '#64748B', fontSize: 10 }}>-</Text>;
   const current = voicings[voicingIdx] || voicings[0];
   const minFret = current.baseFret;
 
@@ -1124,29 +1398,70 @@ const styles = StyleSheet.create({
   subNavLinks: { flexDirection: 'row', gap: 18, alignItems: 'center' },
   subNavLinkItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   subNavLinkText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
-  soonPill: {
-    backgroundColor: '#1E293B',
-    paddingVertical: 1,
-    paddingHorizontal: 5,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  soonPillText: { color: '#F59E0B', fontSize: 9, fontWeight: '900' },
 
-  webPremiumToggle: {
+  adminTriggerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#0284C7',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+  },
+  adminTriggerText: { color: '#38BDF8', fontSize: 10, fontWeight: 'bold' },
+
+  userStatusPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     backgroundColor: '#161F30',
-    paddingVertical: 3,
+    paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: 5,
     borderWidth: 1,
     borderColor: '#334155',
   },
-  webPremiumToggleActive: { borderColor: '#F59E0B' },
-  webPremiumToggleText: { color: '#94A3B8', fontSize: 10, fontWeight: 'bold' },
+  userStatusText: { color: '#F8FAFC', fontSize: 11, fontWeight: 'bold' },
+  upgradeTopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#312E81',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 4,
+  },
+  upgradeTopBtnText: { color: '#F59E0B', fontSize: 10, fontWeight: 'bold' },
+  logoutBtn: { paddingVertical: 2, paddingHorizontal: 5 },
+  logoutText: { color: '#EF4444', fontSize: 10, fontWeight: 'bold' },
+
+  loginTriggerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1E293B',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  loginTriggerText: { color: '#CBD5E1', fontSize: 11, fontWeight: 'bold' },
+
+  registerTriggerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#0284C7',
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    borderRadius: 4,
+  },
+  registerTriggerText: { color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' },
 
   topAdSection: {
     width: '100%',
@@ -1351,6 +1666,7 @@ const styles = StyleSheet.create({
   },
   rateLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
   ratingDetailText: { color: '#CBD5E1', fontSize: 11, fontWeight: 'bold' },
+  visitorNotice: { color: '#38BDF8', fontSize: 10, fontStyle: 'italic' },
   votedNotice: { color: '#10B981', fontSize: 10, fontWeight: 'bold' },
   viewsCountText: { color: '#64748B', fontSize: 10, fontWeight: 'bold' },
 
@@ -1383,7 +1699,6 @@ const styles = StyleSheet.create({
   lyricsScroll: { flex: 1 },
   lyricsScrollContent: { padding: 18, paddingBottom: 60 },
 
-  // 2. ve 3. MADDE: AKOR ŞEMALARI BARİ
   chordsPreviewSection: {
     backgroundColor: '#0B1120',
     borderRadius: 8,
@@ -1407,6 +1722,19 @@ const styles = StyleSheet.create({
   webInstBtnActive: { backgroundColor: '#1E293B' },
   webInstBtnText: { color: '#64748B', fontSize: 9, fontWeight: 'bold' },
   webInstBtnTextActive: { color: '#38BDF8' },
+
+  premiumInstPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#1E1B4B',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  premiumInstPromptText: { color: '#F59E0B', fontSize: 10, fontWeight: 'bold' },
 
   chordCardsRow: { flexDirection: 'row', gap: 10, paddingVertical: 4 },
   miniChordCard: {
@@ -1464,11 +1792,30 @@ const styles = StyleSheet.create({
   sponsorCleanTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: 'bold', textAlign: 'center' },
   sponsorCleanText: { color: '#94A3B8', fontSize: 11, textAlign: 'center', lineHeight: 18 },
   sponsorBannerLine: { width: 60, height: 2, backgroundColor: '#0284C7', borderRadius: 1 },
+  adUpgradeBtn: {
+    backgroundColor: '#F59E0B',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  adUpgradeBtnText: { color: '#0F172A', fontSize: 11, fontWeight: '900' },
   sponsorBrandFoot: { color: '#64748B', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
 
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  loginModalBox: { width: '100%', maxWidth: 380, backgroundColor: '#1E293B', borderRadius: 12, padding: 18, borderWidth: 1, borderColor: '#334155' },
+  modalCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  authTabSwitcher: { flexDirection: 'row', backgroundColor: '#0F172A', borderRadius: 6, padding: 2, gap: 4 },
+  authTabItem: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4 },
+  authTabItemActive: { backgroundColor: '#1E293B' },
+  authTabLabel: { color: '#64748B', fontSize: 11, fontWeight: 'bold' },
+  authTabLabelActive: { color: '#38BDF8' },
+
+  formInput: { backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#334155', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, color: '#F8FAFC', fontSize: 12, marginBottom: 10, outlineStyle: 'none' } as any,
+  modalConfirmBtn: { backgroundColor: '#0284C7', paddingVertical: 9, borderRadius: 6, alignItems: 'center', marginTop: 4 },
+  modalConfirmBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
+  authNoticeFooter: { color: '#64748B', fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 14 },
+
   aiModalBox: { width: '100%', maxWidth: 440, backgroundColor: '#1E293B', borderRadius: 12, padding: 18, borderWidth: 1, borderColor: '#334155' },
-  modalCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   modalCardTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold' },
   aiModalDesc: { color: '#94A3B8', fontSize: 11, lineHeight: 16, marginBottom: 12 },
   styleCard: {
@@ -1485,24 +1832,4 @@ const styles = StyleSheet.create({
   styleBadge: { backgroundColor: '#1E293B', paddingVertical: 1, paddingHorizontal: 5, borderRadius: 3 },
   styleBadgeText: { color: '#F59E0B', fontSize: 9, fontWeight: 'bold' },
   styleDesc: { color: '#64748B', fontSize: 10, marginTop: 2 },
-
-  premiumGateBox: { width: '100%', maxWidth: 400, backgroundColor: '#1E293B', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#F59E0B' },
-  premiumGateDesc: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, marginBottom: 14 },
-  premiumFeatureList: { backgroundColor: '#0F172A', padding: 12, borderRadius: 8, gap: 8, marginBottom: 16 },
-  premiumFeatureItem: { color: '#38BDF8', fontSize: 11, fontWeight: '600' },
-  premiumCtaBtn: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F59E0B',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  premiumCtaBtnText: { color: '#0F172A', fontWeight: '900', fontSize: 13 },
-
-  modalCard: { width: '100%', maxWidth: 380, backgroundColor: '#1E293B', borderRadius: 10, padding: 16, borderWidth: 1, borderColor: '#334155' },
-  modalCardBodyText: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginBottom: 14 },
-  modalConfirmBtn: { backgroundColor: '#0284C7', paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
-  modalConfirmBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
 });

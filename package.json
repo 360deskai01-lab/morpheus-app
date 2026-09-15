@@ -5,18 +5,23 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.112.4",
+    "axios": "^1.20.0",
+    "cheerio": "^1.2.0",
     "expo": "~57.0.18",
     "expo-status-bar": "~57.0.1",
     "lucide-react-native": "^1.37.0",
+    "puppeteer": "^25.11.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-url-polyfill": "^4.0.0",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "tsx": "^4.23.13",
     "typescript": "~6.0.3"
   },
   "scripts": {
