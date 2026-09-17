@@ -7,1829 +7,950 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
-  Platform,
-  Modal,
-  TouchableWithoutFeedback,
-  Pressable,
+  Modal
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { transposeContent, transposeChord, isChordLine } from '../utils/chordEngine';
-import { getChordVoicings } from '../utils/chordDiagrams';
-import { getPianoKeysForChord, PIANO_KEYS_2_OCTAVES } from '../utils/pianoDiagrams';
-import { getBassVoicings } from '../utils/bassDiagrams';
-import { reharmonizeWithAI, MUSIC_STYLES, MusicStyle } from '../services/aiArranger';
+import { transposeContent } from '../utils/chordEngine';
+import { getPianoKeysForChord } from '../utils/pianoDiagrams';
+import { PianoView, FretboardView } from './PianoView';
+
+// Modallar
 import AdminPanelModal from './AdminPanelModal';
+import CoursesModal from './CoursesModal';
 import EventsModal from './EventsModal';
 import ForumModal from './ForumModal';
-import CoursesModal from './CoursesModal';
 import StoreModal from './StoreModal';
 import SubscriptionModal from './SubscriptionModal';
-import {
-  loginWithEmail,
-  registerUser,
-  getCurrentUserProfile,
-  UserProfile,
-} from '../services/authService';
-import {
-  Search,
-  Share2,
-  Smartphone,
-  Sparkles,
-  Plus,
-  Minus,
-  Globe,
-  GraduationCap,
-  MessageSquare,
-  Calendar,
-  ShoppingBag,
-  X,
-  Star,
-  Flame,
-  Eye,
-  Crown,
-  ChevronRight,
-  ChevronLeft,
-  Lock,
-  ShieldAlert,
-  LogIn,
-  UserPlus,
-  Check,
-} from 'lucide-react-native';
+import TunerModal from './TunerModal';
 
-interface Song {
-  id: string;
-  title: string;
-  artist: string;
-  original_key: string;
-  content: string;
-  bpm?: number;
-  capo?: string;
-  rhythm?: string;
-  notes?: string;
-  source_type?: string;
-  parent_id?: string | null;
-  genre?: string;
-  origin?: 'DOMESTIC' | 'FOREIGN';
-  release_year?: number;
-  view_count?: number;
-  version_number?: number;
-  version_desc?: string;
-  rating_avg?: number;
-  rating_count?: number;
-}
+// Sabitler
+import { GENRES, YEARS, ALPHABET, ALL_KEYS } from '../constants/filters';
 
-interface Props {
-  onSendToStage: (song: Song) => void;
-}
+// Gitar Standart Akor Pozisyonları
+const GUITAR_CHORD_FRETS: { [key: string]: number[] } = {
+  'Am': [-1, 0, 2, 2, 1, 0],
+  'A': [-1, 0, 2, 2, 2, 0],
+  'A7': [-1, 0, 2, 0, 2, 0],
+  'C': [-1, 3, 2, 0, 1, 0],
+  'Cmaj7': [-1, 3, 2, 0, 0, 0],
+  'D': [-1, -1, 0, 2, 3, 2],
+  'Dm': [-1, -1, 0, 2, 3, 1],
+  'D7': [-1, -1, 0, 2, 1, 2],
+  'E': [0, 2, 2, 1, 0, 0],
+  'Em': [0, 2, 2, 0, 0, 0],
+  'E7': [0, 2, 0, 1, 0, 0],
+  'F': [1, 3, 3, 2, 1, 1],
+  'F#m': [2, 4, 4, 2, 2, 2],
+  'G': [3, 2, 0, 0, 0, 3],
+  'G7': [3, 2, 0, 0, 0, 1],
+  'B7': [-1, 2, 1, 2, 0, 2],
+  'Bm': [-1, 2, 4, 4, 3, 2],
+};
 
-type InstrumentType = 'guitar' | 'piano' | 'bass';
-type AuthModalTab = 'LOGIN' | 'REGISTER';
+// Bass Standart Kök Nota Pozisyonları
+const BASS_CHORD_FRETS: { [key: string]: number[] } = {
+  'Am': [0, -1, 2, -1],
+  'A': [0, -1, 2, -1],
+  'A7': [0, -1, 2, -1],
+  'C': [-1, 3, -1, 0],
+  'Cmaj7': [-1, 3, -1, 0],
+  'D': [-1, 0, -1, 2],
+  'Dm': [-1, 0, -1, 2],
+  'D7': [-1, 0, -1, 2],
+  'E': [0, -1, 2, -1],
+  'Em': [0, -1, 2, -1],
+  'E7': [0, -1, 2, -1],
+  'F': [1, -1, 3, -1],
+  'F#m': [2, -1, 4, -1],
+  'G': [3, -1, 0, -1],
+  'G7': [3, -1, 0, -1],
+  'B7': [-1, 2, -1, 4],
+  'Bm': [-1, 2, -1, 4],
+};
 
-const TURKISH_ALPHABET = [
-  'A', 'B', 'C', 'Ç', 'D', 'E', 'F', 'G', 'H', 'I', 'İ',
-  'J', 'K', 'L', 'M', 'N', 'O', 'Ö', 'P', 'R', 'S', 'Ş',
-  'T', 'U', 'Ü', 'V', 'Y', 'Z'
-];
-
-const GENRES = ['Tümü', 'Rock', 'Pop', 'Arabesk', 'Türk Sanat', 'Caz/Blues', 'Akustik', 'Metal'];
-const DECADES = [
-  { label: 'Tüm Yıllar', min: 0, max: 3000 },
-  { label: "70'ler", min: 1970, max: 1979 },
-  { label: "80'ler", min: 1980, max: 1989 },
-  { label: "90'lar", min: 1990, max: 1999 },
-  { label: "2000'ler", min: 2000, max: 2009 },
-  { label: '2010+', min: 2010, max: 2099 },
-];
-
-const MONO_FONT = Platform.select({
-  web: 'Consolas, Monaco, "Courier New", monospace',
-  default: 'monospace',
-});
-
-export default function MorpheusWebPortal({ onSendToStage }: Props) {
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
+export default function MorpheusWebPortal() {
+  const [songs, setSongs] = useState<any[]>([]);
+  const [selectedSong, setSelectedSong] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Oturum Durumları
-  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
-  const [isEventsModalOpen, setIsEventsModalOpen] = useState(false);
-  const [isForumModalOpen, setIsForumModalOpen] = useState(false);
-  const [isCoursesModalOpen, setIsCoursesModalOpen] = useState(false);
-  const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
-  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
-
-  // Giriş / Kayıt Modal
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authTab, setAuthTab] = useState<AuthModalTab>('LOGIN');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authFullName, setAuthFullName] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-
-  // Katman Kontrolleri
-  const isVisitor = !currentUserProfile;
-  const isBasic = currentUserProfile?.membership_tier === 'BASIC';
-  const isWebPremium =
-    currentUserProfile?.membership_tier === 'PREMIUM' ||
-    currentUserProfile?.is_master_admin ||
-    false;
-
-  const [webInstrument, setWebInstrument] = useState<InstrumentType>('guitar');
+  const [user, setUser] = useState<any | null>(null);
+  const [profile, setProfile] = useState<any | null>(null);
 
   // Filtreler
-  const [selectedGenre, setSelectedGenre] = useState('Tümü');
-  const [selectedOrigin, setSelectedOrigin] = useState<'ALL' | 'DOMESTIC' | 'FOREIGN'>('ALL');
-  const [selectedDecade, setSelectedDecade] = useState('Tüm Yıllar');
-  const [sortByPopularity, setSortByPopularity] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [originFilter, setOriginFilter] = useState<'Tümü' | 'Yerli' | 'Yabancı'>('Tümü');
+  const [sortFilter, setSortFilter] = useState<'none' | 'views' | 'rating'>('none');
+  const [selectedGenre, setSelectedGenre] = useState<string>('Tümü');
+  const [selectedYear, setSelectedYear] = useState<string>('Tüm Yıllar');
+  const [selectedLetter, setSelectedLetter] = useState<string>('Tümü');
+  const [viewMode, setViewMode] = useState<'songs' | 'lists'>('songs');
 
-  // Transpoze & Font
-  const [transposeValue, setTransposeValue] = useState(0);
-  const [currentTone, setCurrentTone] = useState('');
+  // Dropdown Açık/Kapalı State'leri
+  const [showGenreDropdown, setShowGenreDropdown] = useState(false);
+  const [showYearDropdown, setShowYearDropdown] = useState(false);
+  const [showKeyDropdown, setShowKeyDropdown] = useState(false);
+
+  // Transpoze, Font ve Enstrüman Tabı
+  const [semitoneShift, setSemitoneShift] = useState(0);
   const [fontSize, setFontSize] = useState(15);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [instrumentTab, setInstrumentTab] = useState<'gitar' | 'piyano' | 'bass'>('piyano');
 
-  // Oylama
-  const [hoveredStar, setHoveredStar] = useState<number | null>(null);
-  const [userVoted, setUserVoted] = useState(false);
-
-  // AI Aranjör State'leri
-  const [geminiApiKey] = useState<string>(() => {
-    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
-      return localStorage.getItem('morpheus_gemini_api_key') || '';
-    }
-    return '';
-  });
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [isArranging, setIsArranging] = useState(false);
-  const [arrangingStatus, setArrangingStatus] = useState('');
+  // Modallar
+  const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [correctionModalVisible, setCorrectionModalVisible] = useState(false);
+  const [correctionText, setCorrectionText] = useState('');
+  const [correctionNote, setCorrectionNote] = useState('');
+  const [savingCorrection, setSavingCorrection] = useState(false);
 
   useEffect(() => {
-    fetchWebSongs();
-
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          const profile = await getCurrentUserProfile(session.user.id);
-          if (profile) {
-            setCurrentUserProfile(profile);
-          } else {
-            setCurrentUserProfile({
-              id: session.user.id,
-              email: session.user.email || '',
-              full_name: session.user.user_metadata?.full_name || '',
-              membership_tier: 'BASIC',
-              is_master_admin: session.user.email === 'master@360bct.com',
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('Oturum başlatılırken hata:', err);
-      }
-    };
-
-    initAuth();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const profile = await getCurrentUserProfile(session.user.id);
-        if (profile) {
-          setCurrentUserProfile(profile);
-        } else {
-          setCurrentUserProfile({
-            id: session.user.id,
-            email: session.user.email || '',
-            full_name: session.user.user_metadata?.full_name || '',
-            membership_tier: 'BASIC',
-            is_master_admin: session.user.email === 'master@360bct.com',
-          });
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setCurrentUserProfile(null);
-      }
-    });
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
+    fetchSession();
+    fetchSongs();
   }, []);
 
-  const handleAuthAction = async () => {
-    if (!authEmail.trim() || !authPassword.trim()) {
-      alert('Lütfen e-posta ve şifrenizi girin.');
-      return;
-    }
-
-    try {
-      setAuthLoading(true);
-
-      if (authTab === 'LOGIN') {
-        const user = await loginWithEmail(authEmail, authPassword);
-        if (user) {
-          const profile = await getCurrentUserProfile(user.id);
-          setCurrentUserProfile(
-            profile || {
-              id: user.id,
-              email: user.email!,
-              full_name: user.user_metadata?.full_name || '',
-              membership_tier: 'BASIC',
-              is_master_admin: user.email === 'master@360bct.com',
-            }
-          );
-          setIsAuthModalOpen(false);
-          setAuthPassword('');
-        }
-      } else {
-        if (!authFullName.trim()) {
-          alert('Lütfen adınızı ve soyadınızı girin.');
-          setAuthLoading(false);
-          return;
-        }
-
-        const user = await registerUser(authEmail, authPassword, authFullName);
-        if (user) {
-          const profile = await getCurrentUserProfile(user.id);
-          setCurrentUserProfile(
-            profile || {
-              id: user.id,
-              email: user.email!,
-              full_name: authFullName,
-              membership_tier: 'BASIC',
-              is_master_admin: false,
-            }
-          );
-          setIsAuthModalOpen(false);
-          setAuthPassword('');
-          alert('Basic üyeliğiniz oluşturuldu ve oturumunuz açıldı!');
-        }
-      }
-    } catch (err: any) {
-      alert(err.message || 'İşlem sırasında bir hata oluştu.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setCurrentUserProfile(null);
-  };
-
-  const fetchWebSongs = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('morfeus_songs')
+  const fetchSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      setUser(session.user);
+      const { data: prof } = await supabase
+        .from('profiles')
         .select('*')
-        .order('id', { ascending: false });
-
-      if (error) throw error;
-      if (data && data.length > 0) {
-        const sanitized = data.map((s) => ({
-          ...s,
-          genre: s.genre || 'Rock',
-          release_year: s.release_year || 2000,
-          origin: s.origin || 'DOMESTIC',
-          rating_avg: s.rating_avg ?? 5.0,
-          rating_count: s.rating_count ?? 1,
-          view_count: s.view_count ?? 1,
-        }));
-        setSongs(sanitized);
-        selectSongForView(sanitized[0]);
-      }
-    } catch (err) {
-      console.error('Web kütüphanesi yüklenirken hata:', err);
-    } finally {
-      setLoading(false);
+        .eq('id', session.user.id)
+        .single();
+      if (prof) setProfile(prof);
     }
   };
 
-  const selectSongForView = async (song: Song) => {
+  const fetchSongs = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('morfeus_songs')
+      .select('*')
+      .order('id', { ascending: false });
+
+    if (!error && data) {
+      setSongs(data);
+      if (data.length > 0) {
+        setSelectedSong(data[0]);
+      }
+    }
+    setLoading(false);
+  };
+
+  const handleSelectSong = async (song: any) => {
     setSelectedSong(song);
-    setCurrentTone(song.original_key);
-    setTransposeValue(0);
-    setUserVoted(false);
-
-    try {
-      const newCount = (song.view_count || 0) + 1;
-      await supabase.from('morfeus_songs').update({ view_count: newCount }).eq('id', song.id);
-      setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, view_count: newCount } : s)));
-    } catch (e) {}
+    setSemitoneShift(0);
+    await supabase
+      .from('morfeus_songs')
+      .update({ views: (song.views || 0) + 1 })
+      .eq('id', song.id);
   };
 
-  const handleTranspose = (step: number) => {
-    setTransposeValue((prev) => prev + step);
-    setCurrentTone((prev) => transposeChord(prev, step));
-  };
-
-  const handleRateSong = async (stars: number) => {
-    if (isVisitor) {
-      setAuthTab('REGISTER');
-      setIsAuthModalOpen(true);
-      return;
-    }
-
-    if (!selectedSong || userVoted) return;
-    try {
-      setUserVoted(true);
-      const currentCount = selectedSong.rating_count || 1;
-      const currentAvg = Number(selectedSong.rating_avg) || 5;
-      const newCount = currentCount + 1;
-      const newAvg = Number(((currentAvg * currentCount + stars) / newCount).toFixed(2));
-
-      await supabase.from('morfeus_ratings').insert([{ song_id: selectedSong.id, stars }]);
-      await supabase
-        .from('morfeus_songs')
-        .update({ rating_avg: newAvg, rating_count: newCount })
-        .eq('id', selectedSong.id);
-
-      const updated = { ...selectedSong, rating_avg: newAvg, rating_count: newCount };
-      setSelectedSong(updated);
-      setSongs((prev) => prev.map((s) => (s.id === selectedSong.id ? updated : s)));
-    } catch (err: any) {
-      alert('Oylama iletilemedi: ' + err.message);
-    }
-  };
-
-  const handleShareToApp = async (song: Song) => {
-    try {
-      const code = 'MORF-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const { error } = await supabase.from('morfeus_shares').insert([
-        {
-          share_code: code,
-          payload_type: 'SONG',
-          payload: song,
-        },
-      ]);
-      if (error) throw error;
-
-      try {
-        if (typeof window !== 'undefined' && window.navigator && window.navigator.clipboard) {
-          await window.navigator.clipboard.writeText(code);
-        }
-      } catch (clipErr) {
-        console.warn('Panoya kopyalanamadı:', clipErr);
-      }
-
-      setCopiedCode(code);
-      alert(`Paylaşım Kodu: ${code}\n\nKod panoya kopyalandı! Sahne İstasyonu'nda "Kod ile İçe Aktar" alanına yapıştırabilirsiniz.`);
-      setTimeout(() => setCopiedCode(null), 8000);
-    } catch (err: any) {
-      alert('Paylaşım kodu oluşturulamadı: ' + err.message);
-    }
-  };
-
-  const handleOpenAiModal = () => {
-    if (!isWebPremium) {
-      setIsSubscriptionModalOpen(true);
-      return;
-    }
-    setIsAiModalOpen(true);
-  };
-
-  const handleRunAiArranger = async (style: MusicStyle) => {
+  const handleUpdateOriginalKey = async (newKey: string) => {
     if (!selectedSong) return;
+    setShowKeyDropdown(false);
+    setSelectedSong({ ...selectedSong, original_key: newKey });
+    await supabase
+      .from('morfeus_songs')
+      .update({ original_key: newKey })
+      .eq('id', selectedSong.id);
+  };
 
-    try {
-      setIsArranging(true);
-      setArrangingStatus(`${style} armonisi hesaplanıyor...`);
+  const transposedContent = useMemo(() => {
+    if (!selectedSong?.content) return '';
+    if (semitoneShift === 0) return selectedSong.content;
+    return transposeContent(selectedSong.content, semitoneShift);
+  }, [selectedSong, semitoneShift]);
 
-      const result = await reharmonizeWithAI(
-        geminiApiKey,
-        selectedSong.title,
-        selectedSong.artist,
-        selectedSong.original_key,
-        selectedSong.content,
-        style
-      );
+  const uniqueChordsInSong = useMemo<string[]>(() => {
+    if (!transposedContent) return [];
+    const chordRegex = /\b[A-G][b#]?(?:m|maj|min|dim|aug|sus)?[0-9]?(?:[#b][0-9]+)?(?:\/[A-G][b#]?)?\b/g;
+    const matches = transposedContent.match(chordRegex) || [];
+    return Array.from(new Set(matches)) as string[];
+  }, [transposedContent]);
 
-      setArrangingStatus('Yeni versiyon kütüphaneye kaydediliyor...');
+  const filteredSongs = useMemo(() => {
+    return songs.filter((song) => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q ||
+        (song.title && song.title.toLowerCase().includes(q)) ||
+        (song.artist && song.artist.toLowerCase().includes(q));
 
-      const nextVersion = (selectedSong.version_number || 1) + 1;
-      const { data, error } = await supabase
-        .from('morfeus_songs')
-        .insert([
-          {
-            title: result.newTitle,
-            artist: selectedSong.artist,
-            original_key: result.newKey,
-            bpm: selectedSong.bpm || 100,
-            capo: selectedSong.capo || 'Yok',
-            rhythm: result.rhythm,
-            notes: `Gemini ile ${style} tarzında re-harmonize edildi. Orijinal: ${selectedSong.title}`,
-            content: result.newContent,
-            genre: style === 'JAZZ' ? 'Caz/Blues' : style === 'ARABESK' ? 'Arabesk' : 'Akustik',
-            origin: selectedSong.origin || 'DOMESTIC',
-            release_year: 2026,
-            version_number: nextVersion,
-            version_desc: `${style} AI Aranjmanı`,
-            source_type: 'AI_ARRANGED',
-            parent_id: selectedSong.id,
-            rating_avg: 5.0,
-            rating_count: 1,
-          },
-        ])
-        .select();
+      const matchesOrigin = originFilter === 'Tümü' ||
+        (originFilter === 'Yerli' && song.is_local !== false) ||
+        (originFilter === 'Yabancı' && song.is_local === false);
 
-      if (error) throw error;
+      const matchesGenre = selectedGenre === 'Tümü' || song.genre === selectedGenre;
 
-      if (data && data.length > 0) {
-        const created = data[0];
-        setSongs([created, ...songs]);
-        selectSongForView(created);
-        setIsAiModalOpen(false);
-      }
-    } catch (err: any) {
-      alert(`AI Aranjör Hatası: ${err.message || err}`);
-    } finally {
-      setIsArranging(false);
-      setArrangingStatus('');
+      let matchesYear = true;
+      const y = parseInt(song.release_year, 10);
+      if (selectedYear === "70'ler") matchesYear = y >= 1970 && y < 1980;
+      else if (selectedYear === "80'ler") matchesYear = y >= 1980 && y < 1990;
+      else if (selectedYear === "90'lar") matchesYear = y >= 1990 && y < 2000;
+      else if (selectedYear === "2000'ler") matchesYear = y >= 2000 && y < 2010;
+      else if (selectedYear === "2010'lar") matchesYear = y >= 2010 && y < 2020;
+      else if (selectedYear === '2020+') matchesYear = y >= 2020;
+
+      const matchesLetter = selectedLetter === 'Tümü' ||
+        (song.title && song.title.toLocaleLowerCase('tr-TR').startsWith(selectedLetter.toLocaleLowerCase('tr-TR')));
+
+      return matchesSearch && matchesOrigin && matchesGenre && matchesYear && matchesLetter;
+    }).sort((a, b) => {
+      if (sortFilter === 'views') return (b.views || 0) - (a.views || 0);
+      if (sortFilter === 'rating') return (b.rating || 0) - (a.rating || 0);
+      return 0;
+    });
+  }, [songs, searchQuery, originFilter, selectedGenre, selectedYear, selectedLetter, sortFilter]);
+
+  const submitCorrection = async () => {
+    if (!selectedSong || !correctionText) return;
+    setSavingCorrection(true);
+    const { error } = await supabase.from('song_corrections').insert({
+      song_id: selectedSong.id,
+      user_id: user?.id || null,
+      suggested_content: correctionText,
+      notes: correctionNote
+    });
+    setSavingCorrection(false);
+    if (error) {
+      alert('Hata: ' + error.message);
+    } else {
+      setCorrectionModalVisible(false);
+      setCorrectionText('');
+      setCorrectionNote('');
+      alert('Düzeltme öneriniz admin havuzuna iletildi.');
     }
   };
 
-  const currentSongChords = useMemo(() => {
-    if (!selectedSong) return [];
-    const transposed = transposeContent(selectedSong.content, transposeValue);
-    const chordsFound = new Set<string>();
-
-    const bracketMatches = transposed.match(/\[([^\]]+)\]/g);
-    if (bracketMatches) {
-      bracketMatches.forEach((m) => chordsFound.add(m.slice(1, -1).trim()));
-    }
-
-    const lines = transposed.split('\n');
-    lines.forEach((line) => {
-      if (isChordLine(line)) {
-        line.split(/\s+/).forEach((c) => {
-          if (c.trim()) chordsFound.add(c.trim());
-        });
-      }
-    });
-
-    return Array.from(chordsFound);
-  }, [selectedSong, transposeValue]);
-
-  const renderWebContent = (content: string) => {
-    const lines = content.split('\n');
-
-    return lines.map((line, lIdx) => {
-      if (isChordLine(line)) {
-        return (
-          <View key={lIdx} style={styles.lineBox}>
-            <Text style={[styles.chordOnlyText, { fontSize, fontFamily: MONO_FONT }]}>
-              {line}
-            </Text>
-          </View>
-        );
-      }
-
-      if (line.includes('[')) {
-        const parts = line.split(/(\[[^\]]+\])/g);
-        const pairs: { chord: string; lyric: string }[] = [];
-        let currentChord = '';
-
-        for (let i = 0; i < parts.length; i++) {
-          const p = parts[i];
-          if (p.startsWith('[') && p.endsWith(']')) {
-            currentChord = p.slice(1, -1);
-          } else {
-            pairs.push({ chord: currentChord, lyric: p });
-            currentChord = '';
-          }
-        }
-        if (currentChord) pairs.push({ chord: currentChord, lyric: '' });
-
-        return (
-          <View key={lIdx} style={styles.chordLyricRow}>
-            {pairs.map((pair, pIdx) => (
-              <View key={pIdx} style={styles.heceColumn}>
-                <Text
-                  style={[
-                    styles.aboveChord,
-                    { fontSize: Math.max(12, fontSize - 2), opacity: pair.chord ? 1 : 0 },
-                  ]}
-                >
-                  {pair.chord || '-'}
-                </Text>
-                <Text style={[styles.lyricText, { fontSize, fontFamily: MONO_FONT }]}>
-                  {pair.lyric || (pair.chord ? ' ' : '')}
-                </Text>
-              </View>
-            ))}
-          </View>
-        );
-      }
-
-      return (
-        <View key={lIdx} style={styles.lineBox}>
-          <Text style={[styles.lyricText, { fontSize, fontFamily: MONO_FONT }]}>
-            {line || ' '}
-          </Text>
-        </View>
-      );
-    });
+  const handleOpenAuth = () => {
+    setActiveModal('subscription');
   };
-
-  // HATASIZ VE NULL-GÜVENLİ FİLTRE MOTORU
-  const processedSongs = useMemo(() => {
-    if (!songs || songs.length === 0) return [];
-
-    let result = songs.filter((s) => {
-      const q = searchQuery.trim().toLocaleLowerCase('tr');
-      if (q) {
-        const titleMatch = (s.title || '').toLocaleLowerCase('tr').includes(q);
-        const artistMatch = (s.artist || '').toLocaleLowerCase('tr').includes(q);
-        if (!titleMatch && !artistMatch) return false;
-      }
-
-      if (selectedLetter) {
-        const firstLetter = (s.title || '').trim().toLocaleUpperCase('tr').charAt(0);
-        if (firstLetter !== selectedLetter) return false;
-      }
-
-      if (selectedGenre !== 'Tümü') {
-        if (!s.genre || s.genre !== selectedGenre) return false;
-      }
-
-      if (selectedOrigin !== 'ALL') {
-        if (!s.origin || s.origin !== selectedOrigin) return false;
-      }
-
-      if (selectedDecade !== 'Tüm Yıllar') {
-        const dec = DECADES.find((d) => d.label === selectedDecade);
-        const year = Number(s.release_year) || 2000;
-        if (dec && (year < dec.min || year > dec.max)) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    if (sortByPopularity) {
-      return [...result].sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
-    }
-    return [...result].sort((a, b) => (Number(b.rating_avg) || 0) - (Number(a.rating_avg) || 0));
-  }, [
-    songs,
-    searchQuery,
-    selectedLetter,
-    selectedGenre,
-    selectedOrigin,
-    selectedDecade,
-    sortByPopularity,
-  ]);
 
   return (
-    <View style={styles.outerContainer}>
-      <View style={styles.subNavBar}>
-        <View style={styles.subNavBarInner}>
-          <View style={styles.subNavLinks}>
-            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsCoursesModalOpen(true)}>
-              <GraduationCap color="#38BDF8" size={14} />
-              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Kurslar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsForumModalOpen(true)}>
-              <MessageSquare color="#38BDF8" size={14} />
-              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Forum</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsEventsModalOpen(true)}>
-              <Calendar color="#38BDF8" size={14} />
-              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Etkinlikler</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.subNavLinkItem} onPress={() => setIsStoreModalOpen(true)}>
-              <ShoppingBag color="#38BDF8" size={14} />
-              <Text style={[styles.subNavLinkText, { color: '#38BDF8', fontWeight: 'bold' }]}>Mağaza</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {currentUserProfile?.is_master_admin && (
-              <TouchableOpacity style={styles.adminTriggerBtn} onPress={() => setIsAdminPanelOpen(true)}>
-                <ShieldAlert color="#38BDF8" size={13} />
-                <Text style={styles.adminTriggerText}>Admin Paneli</Text>
-              </TouchableOpacity>
-            )}
-
-            {currentUserProfile ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (!isWebPremium) setIsSubscriptionModalOpen(true);
-                  }}
-                  style={[
-                    styles.userStatusPill,
-                    isWebPremium && { borderColor: '#F59E0B', backgroundColor: '#312E81' },
-                    isBasic && { borderColor: '#38BDF8', backgroundColor: '#0C4A6E' },
-                  ]}
-                >
-                  <Crown
-                    color={currentUserProfile.is_master_admin ? '#F59E0B' : isWebPremium ? '#F59E0B' : '#38BDF8'}
-                    size={12}
-                  />
-                  <Text style={styles.userStatusText}>
-                    {currentUserProfile.is_master_admin
-                      ? 'Master Admin'
-                      : currentUserProfile.membership_tier === 'PREMIUM'
-                      ? `${currentUserProfile.full_name || 'Üye'} (PRO)`
-                      : `${currentUserProfile.full_name || 'Üye'} (BASIC)`}
-                  </Text>
-                </TouchableOpacity>
-
-                {isBasic && (
-                  <TouchableOpacity
-                    style={styles.upgradeTopBtn}
-                    onPress={() => setIsSubscriptionModalOpen(true)}
-                  >
-                    <Sparkles color="#F59E0B" size={11} />
-                    <Text style={styles.upgradeTopBtnText}>Yükselt</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-                  <Text style={styles.logoutText}>Çıkış</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <TouchableOpacity
-                  style={styles.loginTriggerBtn}
-                  onPress={() => {
-                    setAuthTab('LOGIN');
-                    setIsAuthModalOpen(true);
-                  }}
-                >
-                  <LogIn color="#CBD5E1" size={12} />
-                  <Text style={styles.loginTriggerText}>Giriş Yap</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.registerTriggerBtn}
-                  onPress={() => {
-                    setAuthTab('REGISTER');
-                    setIsAuthModalOpen(true);
-                  }}
-                >
-                  <UserPlus color="#FFFFFF" size={12} />
-                  <Text style={styles.registerTriggerText}>Kayıt Ol</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+    <View style={styles.container}>
+      {/* 1. ÜST NAVİGASYON */}
+      <View style={styles.topNav}>
+        <View style={styles.topNavLeft}>
+          <Text style={styles.brandTitle}>MORPHEUS <Text style={styles.brandSub}>v3.6 ULTRA</Text></Text>
+          <View style={styles.mainMenuLinks}>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('forum')}><Text style={styles.menuBtnText}>FORUM</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('events')}><Text style={styles.menuBtnText}>ETKİNLİKLER</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('courses')}><Text style={styles.menuBtnText}>EĞİTİMLER</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('store')}><Text style={styles.menuBtnText}>MAĞAZA</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => alert('Morpheus Help & Teori Merkezi')}><Text style={styles.menuBtnText}>HELP</Text></TouchableOpacity>
           </View>
         </View>
-      </View>
 
-      {!isWebPremium && (
-        <View style={styles.topAdSection}>
-          <View style={styles.adBox728}>
-            <Text style={styles.adTag}>REKLAM (728x90)</Text>
-            <Text style={styles.adMessage} numberOfLines={1}>
-              Morpheus Sahne Omurgası • Profesyonel Canlı Performans İstasyonu & Akor Veritabanı
-            </Text>
-          </View>
-        </View>
-      )}
-
-      <View style={styles.centerContainerWrapper}>
-        <View style={styles.mainContainer1280}>
-          <View style={styles.leftColumn}>
-            <View style={styles.leftHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Globe color="#38BDF8" size={15} />
-                <Text style={styles.leftHeaderTitle}>Akor Kütüphanesi</Text>
-              </View>
-              <Text style={styles.songCountBadge}>{processedSongs.length} Eser</Text>
-            </View>
-
-            <View style={styles.searchBox}>
-              <Search color="#64748B" size={14} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Şarkı veya sanatçı..."
-                placeholderTextColor="#64748B"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-            </View>
-
-            <View style={styles.filterRowCompact}>
-              <TouchableOpacity
-                style={[styles.sortBtn, sortByPopularity && styles.sortBtnActive]}
-                onPress={() => setSortByPopularity(!sortByPopularity)}
-              >
-                <Flame color={sortByPopularity ? '#F59E0B' : '#64748B'} size={13} />
-                <Text style={[styles.sortBtnText, sortByPopularity && { color: '#F59E0B' }]}>
-                  En Çok Ziyaret
-                </Text>
-              </TouchableOpacity>
-
-              <View style={styles.originGroup}>
-                <TouchableOpacity
-                  style={[styles.originBtn, selectedOrigin === 'ALL' && styles.originBtnActive]}
-                  onPress={() => setSelectedOrigin('ALL')}
-                >
-                  <Text style={[styles.originText, selectedOrigin === 'ALL' && styles.originTextActive]}>Tümü</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.originBtn, selectedOrigin === 'DOMESTIC' && styles.originBtnActive]}
-                  onPress={() => setSelectedOrigin('DOMESTIC')}
-                >
-                  <Text style={[styles.originText, selectedOrigin === 'DOMESTIC' && styles.originTextActive]}>Yerli</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.originBtn, selectedOrigin === 'FOREIGN' && styles.originBtnActive]}
-                  onPress={() => setSelectedOrigin('FOREIGN')}
-                >
-                  <Text style={[styles.originText, selectedOrigin === 'FOREIGN' && styles.originTextActive]}>Yabancı</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.genreBar} contentContainerStyle={{ gap: 4, paddingHorizontal: 8 }}>
-              {GENRES.map((g) => (
-                <TouchableOpacity
-                  key={g}
-                  style={[styles.genreChip, selectedGenre === g && styles.genreChipActive]}
-                  onPress={() => setSelectedGenre(g)}
-                >
-                  <Text style={[styles.genreText, selectedGenre === g && styles.genreChipActive && { color: '#FFFFFF' }]}>{g}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.decadeBar} contentContainerStyle={{ gap: 4, paddingHorizontal: 8 }}>
-              {DECADES.map((d) => (
-                <TouchableOpacity
-                  key={d.label}
-                  style={[styles.decadeChip, selectedDecade === d.label && styles.decadeChipActive]}
-                  onPress={() => setSelectedDecade(d.label)}
-                >
-                  <Text style={[styles.decadeText, selectedDecade === d.label && styles.decadeTextActive]}>{d.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.alphaBar} contentContainerStyle={{ gap: 3, paddingHorizontal: 8 }}>
-              <TouchableOpacity
-                style={[styles.alphaBtn, !selectedLetter && styles.alphaBtnActive]}
-                onPress={() => setSelectedLetter(null)}
-              >
-                <Text style={[styles.alphaTxt, !selectedLetter && styles.alphaTxtActive]}>Tümü</Text>
-              </TouchableOpacity>
-              {TURKISH_ALPHABET.map((ch) => (
-                <TouchableOpacity
-                  key={ch}
-                  style={[styles.alphaBtn, selectedLetter === ch && styles.alphaBtnActive]}
-                  onPress={() => setSelectedLetter(selectedLetter === ch ? null : ch)}
-                >
-                  <Text style={[styles.alphaTxt, selectedLetter === ch && styles.alphaTxtActive]}>{ch}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            {loading ? (
-              <View style={styles.center}><ActivityIndicator color="#38BDF8" /></View>
-            ) : (
-              <ScrollView style={styles.songListScroll} showsVerticalScrollIndicator={false}>
-                {processedSongs.map((s) => {
-                  const isSelected = selectedSong?.id === s.id;
-                  return (
-                    <TouchableOpacity
-                      key={s.id}
-                      style={[styles.songCard, isSelected && styles.songCardActive]}
-                      onPress={() => selectSongForView(s)}
-                    >
-                      <View style={{ flex: 1, paddingRight: 6 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <Text style={[styles.songCardTitle, isSelected && styles.songCardTitleActive]} numberOfLines={1}>
-                            {s.title}
-                          </Text>
-                          {s.version_number && s.version_number > 1 ? (
-                            <View style={styles.versionBadge}><Text style={styles.versionBadgeText}>v{s.version_number}</Text></View>
-                          ) : null}
-                        </View>
-                        <Text style={styles.songCardArtist} numberOfLines={1}>
-                          {s.artist} {s.genre ? `• ${s.genre}` : ''}
-                        </Text>
-                      </View>
-
-                      <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                        <View style={styles.ratingBadge}>
-                          <Star color="#F59E0B" fill="#F59E0B" size={10} />
-                          <Text style={styles.ratingText}>{Number(s.rating_avg || 5.0).toFixed(1)}</Text>
-                        </View>
-                        <View style={styles.keyTag}><Text style={styles.keyTagText}>{s.original_key}</Text></View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-                {processedSongs.length === 0 && (
-                  <Text style={styles.emptyText}>Sonuç bulunamadı.</Text>
-                )}
-              </ScrollView>
-            )}
+        <View style={styles.topNavRight}>
+          <View style={styles.webAppSwitch}>
+            <TouchableOpacity style={[styles.switchBtn, styles.switchActive]}><Text style={styles.switchText}>WEB</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.switchBtn} onPress={() => alert('Mobile App Store yönlendirmesi')}><Text style={styles.switchText}>APP</Text></TouchableOpacity>
           </View>
 
-          <View style={styles.centerColumn}>
-            {selectedSong ? (
-              <>
-                <View style={styles.centerHeader}>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.centerSongTitle}>{selectedSong.title}</Text>
-                      {selectedSong.version_desc && (
-                        <View style={styles.versionDescBadge}>
-                          <Text style={styles.versionDescText}>{selectedSong.version_desc}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.centerSongArtist}>
-                      {selectedSong.artist} • {selectedSong.release_year || '2000'} • {selectedSong.genre || 'Rock'}
-                    </Text>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                    <TouchableOpacity
-                      style={styles.aiArrangerHeaderBtn}
-                      onPress={handleOpenAiModal}
-                    >
-                      <Sparkles color="#F59E0B" size={13} />
-                      <Text style={styles.aiArrangerHeaderBtnText}>AI Aranje Et</Text>
-                      {!isWebPremium && <Lock color="#94A3B8" size={11} />}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.bridgeBtn,
-                        copiedCode && { borderColor: '#10B981', backgroundColor: '#064E3B' },
-                      ]}
-                      onPress={() => handleShareToApp(selectedSong)}
-                    >
-                      {copiedCode ? (
-                        <>
-                          <Check color="#34D399" size={13} />
-                          <Text style={[styles.bridgeBtnText, { color: '#34D399' }]}>
-                            {copiedCode} (Kopyalandı)
-                          </Text>
-                        </>
-                      ) : (
-                        <>
-                          <Share2 color="#38BDF8" size={13} />
-                          <Text style={styles.bridgeBtnText}>Paylaşım Kodu</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.stageDirectBtn}
-                      onPress={() => onSendToStage(selectedSong)}
-                    >
-                      <Smartphone color="#FFFFFF" size={13} />
-                      <Text style={styles.stageDirectBtnText}>Sahne Modunda Aç</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.ratingBar}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={styles.rateLabel}>Akor Puanı:</Text>
-                    <View style={{ flexDirection: 'row', gap: 2 }}>
-                      {[1, 2, 3, 4, 5].map((star) => {
-                        const filled = (hoveredStar ?? Math.round(selectedSong.rating_avg || 5)) >= star;
-                        return (
-                          <Pressable
-                            key={star}
-                            disabled={userVoted}
-                            onPress={() => handleRateSong(star)}
-                            onHoverIn={() => !userVoted && setHoveredStar(star)}
-                            onHoverOut={() => !userVoted && setHoveredStar(null)}
-                          >
-                            <Star color="#F59E0B" fill={filled ? '#F59E0B' : 'transparent'} size={15} />
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                    <Text style={styles.ratingDetailText}>
-                      {Number(selectedSong.rating_avg || 5).toFixed(2)} ({selectedSong.rating_count || 1} oy)
-                    </Text>
-                    {isVisitor && <Text style={styles.visitorNotice}>(Puanlamak için üye olun)</Text>}
-                    {userVoted && <Text style={styles.votedNotice}>Oyunuz kaydedildi!</Text>}
-                  </View>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Eye color="#64748B" size={13} />
-                    <Text style={styles.viewsCountText}>{selectedSong.view_count || 1} izlenme</Text>
-                  </View>
-                </View>
-
-                <View style={styles.readerControls}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={styles.tonDisplay}>
-                      <Text style={styles.tonLabel}>TON:</Text>
-                      <Text style={styles.tonValue}>{currentTone}</Text>
-                    </View>
-                    <View style={styles.transGroup}>
-                      <TouchableOpacity style={styles.circleBtn} onPress={() => handleTranspose(-1)}>
-                        <Minus color="#FFFFFF" size={11} />
-                      </TouchableOpacity>
-                      <Text style={styles.transValueText}>
-                        {transposeValue > 0 ? `+${transposeValue}` : transposeValue}
-                      </Text>
-                      <TouchableOpacity style={styles.circleBtn} onPress={() => handleTranspose(1)}>
-                        <Plus color="#FFFFFF" size={11} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', gap: 5 }}>
-                    <TouchableOpacity style={styles.fontBtn} onPress={() => setFontSize((p) => Math.max(12, p - 1))}>
-                      <Text style={styles.fontBtnText}>A-</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.fontBtn} onPress={() => setFontSize((p) => Math.min(24, p + 1))}>
-                      <Text style={styles.fontBtnText}>A+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
-                  {currentSongChords.length > 0 && (
-                    <View style={styles.chordsPreviewSection}>
-                      <View style={styles.chordsPreviewHeader}>
-                        <Text style={styles.chordsPreviewTitle}>Parçada Geçen Akorlar</Text>
-
-                        {isWebPremium ? (
-                          <View style={styles.webInstGroup}>
-                            {(['guitar', 'piano', 'bass'] as InstrumentType[]).map((inst) => (
-                              <TouchableOpacity
-                                key={inst}
-                                style={[
-                                  styles.webInstBtn,
-                                  webInstrument === inst && styles.webInstBtnActive,
-                                ]}
-                                onPress={() => setWebInstrument(inst)}
-                              >
-                                <Text
-                                  style={[
-                                    styles.webInstBtnText,
-                                    webInstrument === inst && styles.webInstBtnTextActive,
-                                  ]}
-                                >
-                                  {inst === 'guitar' ? 'Gitar' : inst === 'piano' ? 'Piyano' : 'Bas'}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        ) : (
-                          <TouchableOpacity
-                            style={styles.premiumInstPrompt}
-                            onPress={() => setIsSubscriptionModalOpen(true)}
-                          >
-                            <Lock color="#F59E0B" size={11} />
-                            <Text style={styles.premiumInstPromptText}>Piyano & Bas Şemalarını Aç (Pro)</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.chordCardsRow}
-                      >
-                        {currentSongChords.map((chord) => (
-                          <View key={chord} style={styles.miniChordCard}>
-                            <Text style={styles.miniChordCardName}>{chord}</Text>
-                            {webInstrument === 'guitar' && <MiniGuitarChord chord={chord} isPremium={isWebPremium} />}
-                            {webInstrument === 'piano' && isWebPremium && <MiniPianoChord chord={chord} />}
-                            {webInstrument === 'bass' && isWebPremium && <MiniBassChord chord={chord} isPremium={isWebPremium} />}
-                          </View>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                  {renderWebContent(transposeContent(selectedSong.content, transposeValue))}
-                </ScrollView>
-              </>
-            ) : (
-              <View style={styles.center}><Text style={styles.emptyText}>Görüntülemek için bir şarkı seçin.</Text></View>
-            )}
-          </View>
-
-          {!isWebPremium && (
-            <View style={styles.rightColumn}>
-              <View style={styles.adSkyscraper300x600}>
-                <Text style={styles.adTag}>SPONSOR ALANI (300x600)</Text>
-
-                <View style={styles.sponsorCleanBox}>
-                  <Crown color="#38BDF8" size={32} />
-                  <Text style={styles.sponsorCleanTitle}>Morpheus Pro Sahne</Text>
-                  <Text style={styles.sponsorCleanText}>
-                    Gitaristler ve sahne müzisyenleri için akıllı repertuvar, transpoze ve canlı tuner istasyonu.
-                  </Text>
-
-                  <View style={styles.sponsorBannerLine} />
-
-                  <TouchableOpacity
-                    style={styles.adUpgradeBtn}
-                    onPress={() => setIsSubscriptionModalOpen(true)}
-                  >
-                    <Text style={styles.adUpgradeBtnText}>Reklamları Kaldır (Pro'ya Geç)</Text>
-                  </TouchableOpacity>
-
-                  <Text style={styles.sponsorBrandFoot}>360DESK MÜZİK TEKNOLOJİLERİ</Text>
-                </View>
-              </View>
+          {user ? (
+            <TouchableOpacity onPress={() => setActiveModal('profile')}>
+              <Text style={styles.userBadge}>{user.email?.split('@')[0]} ({profile?.membership_tier?.toUpperCase() || 'BASIC'})</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.authBtns}>
+              <TouchableOpacity style={styles.loginBtn} onPress={handleOpenAuth}><Text style={styles.loginText}>Giriş</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.registerBtn} onPress={handleOpenAuth}><Text style={styles.registerText}>Kayıt</Text></TouchableOpacity>
             </View>
           )}
         </View>
       </View>
 
-      <AdminPanelModal visible={isAdminPanelOpen} onClose={() => setIsAdminPanelOpen(false)} />
+      {/* 2. ADV BAR */}
+      <View style={styles.advBanner}>
+        <Text style={styles.advBannerText}>REKLAM (728x90) • Morpheus Sahne Omurgası • Canlı Performans & Akor İstasyonu</Text>
+      </View>
 
-      <EventsModal
-        visible={isEventsModalOpen}
-        onClose={() => setIsEventsModalOpen(false)}
-        currentUser={currentUserProfile}
-        onOpenAuth={() => {
-          setAuthTab('LOGIN');
-          setIsAuthModalOpen(true);
-        }}
-      />
+      {/* 3. ARAMA, FİLTRE VE ALFABE (ORTALANMIŞ & DARALTILMIŞ BÖLÜM) */}
+      <View style={styles.searchSection}>
+        <View style={styles.searchInnerWrapper}>
+          {/* Daraltılmış & Ortalanmış Arama Çubuğu */}
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Şarkı adı veya sanatçı adı arayın..."
+            placeholderTextColor="#64748b"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
 
-      <ForumModal
-        visible={isForumModalOpen}
-        onClose={() => setIsForumModalOpen(false)}
-        currentUser={currentUserProfile}
-        onOpenAuth={() => {
-          setAuthTab('LOGIN');
-          setIsAuthModalOpen(true);
-        }}
-      />
-
-      <CoursesModal
-        visible={isCoursesModalOpen}
-        onClose={() => setIsCoursesModalOpen(false)}
-        currentUser={currentUserProfile}
-        onOpenAuth={() => {
-          setAuthTab('LOGIN');
-          setIsAuthModalOpen(true);
-        }}
-      />
-
-      <StoreModal
-        visible={isStoreModalOpen}
-        onClose={() => setIsStoreModalOpen(false)}
-        currentUser={currentUserProfile}
-        onOpenAuth={() => {
-          setAuthTab('LOGIN');
-          setIsAuthModalOpen(true);
-        }}
-      />
-
-      <SubscriptionModal
-        visible={isSubscriptionModalOpen}
-        onClose={() => setIsSubscriptionModalOpen(false)}
-        currentUser={currentUserProfile}
-        onSuccess={() => {
-          if (currentUserProfile) {
-            setCurrentUserProfile({
-              ...currentUserProfile,
-              membership_tier: 'PREMIUM',
-            });
-          }
-        }}
-        onOpenAuth={() => {
-          setAuthTab('LOGIN');
-          setIsAuthModalOpen(true);
-        }}
-      />
-
-      <Modal visible={isAuthModalOpen} transparent animationType="fade" onRequestClose={() => setIsAuthModalOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsAuthModalOpen(false)}>
-          <View style={styles.modalBackdrop}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.loginModalBox}>
-                <View style={styles.modalCardHeader}>
-                  <View style={styles.authTabSwitcher}>
-                    <TouchableOpacity
-                      style={[styles.authTabItem, authTab === 'LOGIN' && styles.authTabItemActive]}
-                      onPress={() => setAuthTab('LOGIN')}
-                    >
-                      <Text style={[styles.authTabLabel, authTab === 'LOGIN' && styles.authTabLabelActive]}>
-                        Giriş Yap
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.authTabItem, authTab === 'REGISTER' && styles.authTabItemActive]}
-                      onPress={() => setAuthTab('REGISTER')}
-                    >
-                      <Text style={[styles.authTabLabel, authTab === 'REGISTER' && styles.authTabLabelActive]}>
-                        Kayıt Ol (Ücretsiz)
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <TouchableOpacity onPress={() => setIsAuthModalOpen(false)}>
-                    <X color="#94A3B8" size={18} />
-                  </TouchableOpacity>
-                </View>
-
-                {authTab === 'REGISTER' && (
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Adınız ve Soyadınız"
-                    placeholderTextColor="#64748B"
-                    value={authFullName}
-                    onChangeText={setAuthFullName}
-                  />
-                )}
-
-                <TextInput
-                  style={styles.formInput}
-                  placeholder="E-posta adresi"
-                  placeholderTextColor="#64748B"
-                  value={authEmail}
-                  onChangeText={setAuthEmail}
-                  autoCapitalize="none"
-                />
-
-                <TextInput
-                  style={styles.formInput}
-                  placeholder="Şifre"
-                  placeholderTextColor="#64748B"
-                  value={authPassword}
-                  onChangeText={setAuthPassword}
-                  secureTextEntry
-                />
-
+          {/* Ortalanmış Filtre & Dropdown Satırı */}
+          <View style={styles.filterBar}>
+            <View style={styles.filterRow}>
+              {(['Tümü', 'Yerli', 'Yabancı'] as const).map((org) => (
                 <TouchableOpacity
-                  style={[styles.modalConfirmBtn, authLoading && { opacity: 0.6 }]}
-                  disabled={authLoading}
-                  onPress={handleAuthAction}
+                  key={org}
+                  style={[styles.filterChip, originFilter === org && styles.activeChip]}
+                  onPress={() => setOriginFilter(org)}
                 >
-                  <Text style={styles.modalConfirmBtnText}>
-                    {authLoading
-                      ? 'İşleniyor...'
-                      : authTab === 'LOGIN'
-                      ? 'Oturum Aç'
-                      : 'Basic Hesabımı Oluştur'}
+                  <Text style={[styles.filterChipText, originFilter === org && styles.activeChipText]}>{org}</Text>
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity
+                style={[styles.filterChip, sortFilter === 'views' && styles.activeChip]}
+                onPress={() => setSortFilter(sortFilter === 'views' ? 'none' : 'views')}
+              >
+                <Text style={[styles.filterChipText, sortFilter === 'views' && styles.activeChipText]}>En Çok Ziyaret Edilenler</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.filterChip, sortFilter === 'rating' && styles.activeChip]}
+                onPress={() => setSortFilter(sortFilter === 'rating' ? 'none' : 'rating')}
+              >
+                <Text style={[styles.filterChipText, sortFilter === 'rating' && styles.activeChipText]}>En Çok Oy Alanlar</Text>
+              </TouchableOpacity>
+
+              {/* TÜR DROPDOWN */}
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity
+                  style={[styles.dropdownBtn, selectedGenre !== 'Tümü' && styles.activeDropdownBtn]}
+                  onPress={() => {
+                    setShowGenreDropdown(!showGenreDropdown);
+                    setShowYearDropdown(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownBtnText, selectedGenre !== 'Tümü' && styles.activeDropdownBtnText]}>
+                    {selectedGenre === 'Tümü' ? 'Tür Seç' : selectedGenre} ▾
                   </Text>
                 </TouchableOpacity>
 
-                {authTab === 'REGISTER' && (
-                  <Text style={styles.authNoticeFooter}>
-                    Kayıt olduğunuzda akorları oylayabilir, parçaları kendi listenize kaydedebilirsiniz.
-                  </Text>
+                {showGenreDropdown && (
+                  <View style={styles.dropdownMenu}>
+                    {GENRES.map((g) => (
+                      <TouchableOpacity
+                        key={g}
+                        style={[styles.dropdownItem, selectedGenre === g && styles.activeDropdownItem]}
+                        onPress={() => {
+                          setSelectedGenre(g);
+                          setShowGenreDropdown(false);
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, selectedGenre === g && styles.activeDropdownItemText]}>{g}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 )}
               </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
 
-      <Modal visible={isAiModalOpen} transparent animationType="slide" onRequestClose={() => !isArranging && setIsAiModalOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => !isArranging && setIsAiModalOpen(false)}>
-          <View style={styles.modalBackdrop}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.aiModalBox}>
-                <View style={styles.modalCardHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Sparkles color="#F59E0B" size={18} />
-                    <Text style={styles.modalCardTitle}>AI Akor Tarz Aranjörü</Text>
+              {/* YILLAR DROPDOWN */}
+              <View style={styles.dropdownContainer}>
+                <TouchableOpacity
+                  style={[styles.dropdownBtn, selectedYear !== 'Tüm Yıllar' && styles.activeDropdownBtn]}
+                  onPress={() => {
+                    setShowYearDropdown(!showYearDropdown);
+                    setShowGenreDropdown(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownBtnText, selectedYear !== 'Tüm Yıllar' && styles.activeDropdownBtnText]}>
+                    {selectedYear === 'Tüm Yıllar' ? 'Yıllar' : selectedYear} ▾
+                  </Text>
+                </TouchableOpacity>
+
+                {showYearDropdown && (
+                  <View style={styles.dropdownMenu}>
+                    {YEARS.map((y) => (
+                      <TouchableOpacity
+                        key={y}
+                        style={[styles.dropdownItem, selectedYear === y && styles.activeDropdownItem]}
+                        onPress={() => {
+                          setSelectedYear(y);
+                          setShowYearDropdown(false);
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, selectedYear === y && styles.activeDropdownItemText]}>{y}</Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
-                  {!isArranging && (
-                    <TouchableOpacity onPress={() => setIsAiModalOpen(false)}>
-                      <X color="#94A3B8" size={18} />
-                    </TouchableOpacity>
+                )}
+              </View>
+
+              {/* LİSTELER BUTONU */}
+              <TouchableOpacity
+                style={[styles.filterChipSpecial, viewMode === 'lists' && styles.activeChipSpecial]}
+                onPress={() => setViewMode(viewMode === 'lists' ? 'songs' : 'lists')}
+              >
+                <Text style={styles.filterChipTextSpecial}>LİSTELER</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Ortalanmış Alfabe Şeridi */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.alphaScrollContent}
+            style={styles.alphaScrollView}
+          >
+            {ALPHABET.map((char) => (
+              <TouchableOpacity
+                key={char}
+                style={[styles.alphaChar, selectedLetter === char && styles.activeAlphaChar]}
+                onPress={() => setSelectedLetter(char)}
+              >
+                <Text style={[styles.alphaCharText, selectedLetter === char && styles.activeAlphaCharText]}>{char}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+
+      {/* 4. 3 KOLONLU GÖVDE */}
+      <View style={styles.mainGrid}>
+        {/* SOL: Arama Listesi */}
+        <View style={styles.leftCol}>
+          <View style={styles.colHeader}>
+            <Text style={styles.colHeaderText}>{viewMode === 'lists' ? 'Hazır Repertuvarlar' : 'Akor Kütüphanesi'}</Text>
+            <Text style={styles.counterText}>{filteredSongs.length} Eser</Text>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator color="#0284c7" style={{ marginTop: 40 }} />
+          ) : (
+            <ScrollView style={styles.songList}>
+              {filteredSongs.map((song) => {
+                const isSelected = selectedSong?.id === song.id;
+                return (
+                  <TouchableOpacity
+                    key={song.id}
+                    style={[styles.songCard, isSelected && styles.songCardSelected]}
+                    onPress={() => handleSelectSong(song)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.songCardTitle, isSelected && styles.textWhite]}>{song.title}</Text>
+                      <Text style={styles.songCardArtist}>{song.artist} • {song.genre || 'Genel'}</Text>
+                    </View>
+                    <Text style={styles.keyTag}>{song.original_key || 'Am'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ORTA: Şarkı Sahnesi & Akor Tabları */}
+        <View style={styles.centerCol}>
+          {selectedSong ? (
+            <ScrollView style={styles.songViewWrapper}>
+              <View style={styles.actionHeaderRow}>
+                <TouchableOpacity
+                  style={styles.actionBtnAI}
+                  onPress={() => alert('AI Aranje Motoru: Gemini API üzerinden yeni aranje üretiliyor...')}
+                >
+                  <Text style={styles.actionBtnText}>⚡ AI ARANJE ET</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionBtnSecondary}
+                  onPress={() => alert(`Paylaşım Kodu: MORPH-${selectedSong.id.slice(0, 8).toUpperCase()}`)}
+                >
+                  <Text style={styles.actionBtnTextSec}>🔗 PAYLAŞIM KODU</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionBtnPro, profile?.membership_tier === 'basic' && styles.disabledBtn]}
+                  onPress={() => {
+                    if (profile?.membership_tier === 'basic' || !user) {
+                      alert('Sahne Modu Single & Band üyelere özeldir. Lütfen paketinizi yükseltin.');
+                    } else {
+                      setActiveModal('tuner');
+                    }
+                  }}
+                >
+                  <Text style={styles.actionBtnTextPro}>👑 SAHNE MODU</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Başlık & Sayaçlar */}
+              <View style={styles.songHeaderBox}>
+                <View style={styles.titleRow}>
+                  <Text style={styles.songMainTitle}>{selectedSong.title}</Text>
+                  <View style={styles.stdBadge}>
+                    <Text style={styles.stdBadgeText}>Standart Akor</Text>
+                  </View>
+                  <View style={styles.statsRow}>
+                    <Text style={styles.statItem}>⭐ {selectedSong.rating || '5.0'} Oy</Text>
+                    <Text style={styles.statItem}>👁️ {selectedSong.views || 0} İzlenme</Text>
+                    <Text style={styles.statItem}>📑 {selectedSong.playlist_count || 12} Liste</Text>
+                  </View>
+                </View>
+
+                <View style={styles.artistRow}>
+                  <Text style={styles.artistName}>
+                    {selectedSong.artist} • {selectedSong.release_year || '2000'} • {selectedSong.genre || 'Rock'}
+                  </Text>
+                  <View style={styles.fontSizeControls}>
+                    <TouchableOpacity onPress={() => setFontSize(Math.max(12, fontSize - 1))} style={styles.sizeBtn}><Text style={styles.sizeBtnText}>A-</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => setFontSize(Math.min(26, fontSize + 1))} style={styles.sizeBtn}><Text style={styles.sizeBtnText}>A+</Text></TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* ENSTRÜMAN TABLARI & MİNİMALİST DİYAGRAMLAR */}
+              <View style={styles.tabSection}>
+                <View style={styles.tabInstrumentSelector}>
+                  <TouchableOpacity
+                    style={[styles.instBtn, instrumentTab === 'piyano' && styles.instBtnActive]}
+                    onPress={() => setInstrumentTab('piyano')}
+                  >
+                    <Text style={[styles.instBtnText, instrumentTab === 'piyano' && styles.textWhite]}>PİYANO</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.instBtn, instrumentTab === 'gitar' && styles.instBtnActive]}
+                    onPress={() => setInstrumentTab('gitar')}
+                  >
+                    <Text style={[styles.instBtnText, instrumentTab === 'gitar' && styles.textWhite]}>GİTAR</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.instBtn, instrumentTab === 'bass' && styles.instBtnActive]}
+                    onPress={() => setInstrumentTab('bass')}
+                  >
+                    <Text style={[styles.instBtnText, instrumentTab === 'bass' && styles.textWhite]}>BASS</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Dinamik Diyagram Şeridi */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chordsScroll}>
+                  {uniqueChordsInSong.map((chord: string) => {
+                    if (instrumentTab === 'piyano') {
+                      const pitches = getPianoKeysForChord(chord);
+                      return (
+                        <View key={`piano-${chord}`} style={styles.chordDiagramCard}>
+                          <PianoView activePitches={pitches} chordName={chord} />
+                        </View>
+                      );
+                    } else if (instrumentTab === 'gitar') {
+                      const frets = GUITAR_CHORD_FRETS[chord] || [-1, 0, 2, 2, 1, 0];
+                      return (
+                        <View key={`guitar-${chord}`} style={styles.chordDiagramCard}>
+                          <FretboardView chordName={chord} stringsCount={6} frets={frets} />
+                        </View>
+                      );
+                    } else {
+                      const frets = BASS_CHORD_FRETS[chord] || [0, -1, 2, -1];
+                      return (
+                        <View key={`bass-${chord}`} style={styles.chordDiagramCard}>
+                          <FretboardView chordName={chord} stringsCount={4} frets={frets} />
+                        </View>
+                      );
+                    }
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Ton & Transpoze */}
+              <View style={styles.transRow}>
+                <View style={styles.keyPickerWrap}>
+                  <Text style={styles.tonLabel}>TON : </Text>
+                  <TouchableOpacity
+                    style={styles.keySelectorBtn}
+                    onPress={() => setShowKeyDropdown(!showKeyDropdown)}
+                  >
+                    <Text style={styles.keySelectorBtnText}>{selectedSong.original_key || 'Am'} ▾</Text>
+                  </TouchableOpacity>
+
+                  {showKeyDropdown && (
+                    <View style={styles.keyDropdownMenu}>
+                      {ALL_KEYS.map((k) => (
+                        <TouchableOpacity
+                          key={k}
+                          style={styles.keyDropItem}
+                          onPress={() => handleUpdateOriginalKey(k)}
+                        >
+                          <Text style={styles.keyDropText}>{k}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   )}
                 </View>
 
-                <Text style={styles.aiModalDesc}>
-                  "{selectedSong?.title}" parçasının akorlarını seçtiğiniz türe göre yeniden armonize edin:
-                </Text>
-
-                {isArranging ? (
-                  <View style={{ paddingVertical: 30, alignItems: 'center', gap: 10 }}>
-                    <ActivityIndicator size="large" color="#F59E0B" />
-                    <Text style={{ color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 }}>{arrangingStatus}</Text>
-                    <Text style={{ color: '#94A3B8', fontSize: 11 }}>Yeni armoni basamakları türetiliyor...</Text>
-                  </View>
-                ) : (
-                  <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
-                    {MUSIC_STYLES.map((style) => (
-                      <TouchableOpacity
-                        key={style.id}
-                        style={styles.styleCard}
-                        onPress={() => handleRunAiArranger(style.id)}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Text style={styles.styleName}>{style.name}</Text>
-                            <View style={styles.styleBadge}><Text style={styles.styleBadgeText}>{style.badge}</Text></View>
-                          </View>
-                          <Text style={styles.styleDesc}>{style.desc}</Text>
-                        </View>
-                        <ChevronRight color="#64748B" size={16} />
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                )}
+                <View style={styles.transposeButtons}>
+                  <TouchableOpacity style={styles.transBtn} onPress={() => setSemitoneShift(semitoneShift - 1)}><Text style={styles.transBtnText}>-</Text></TouchableOpacity>
+                  <TouchableOpacity style={styles.transBtnZero} onPress={() => setSemitoneShift(0)}><Text style={styles.transBtnZeroText}>0</Text></TouchableOpacity>
+                  <TouchableOpacity style={styles.transBtn} onPress={() => setSemitoneShift(semitoneShift + 1)}><Text style={styles.transBtnText}>+</Text></TouchableOpacity>
+                  <Text style={styles.transOffset}>({semitoneShift > 0 ? `+${semitoneShift}` : semitoneShift})</Text>
+                </View>
               </View>
-            </TouchableWithoutFeedback>
+
+              {/* Şarkı Sözleri ve Akorlar */}
+              <View style={styles.lyricsBox}>
+                <Text style={[styles.lyricsText, { fontSize }]}>
+                  {transposedContent}
+                </Text>
+              </View>
+
+              {/* Düzeltme Önerisi */}
+              <TouchableOpacity
+                style={styles.correctionBtn}
+                onPress={() => {
+                  setCorrectionText(selectedSong.content || '');
+                  setCorrectionModalVisible(true);
+                }}
+              >
+                <Text style={styles.correctionBtnText}>✍️ Bu Parça İçin Düzeltme Önerisinde Bulun</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          ) : (
+            <View style={styles.emptyCenter}>
+              <Text style={styles.emptyCenterText}>Görüntülemek için soldan bir şarkı seçin.</Text>
+            </View>
+          )}
+        </View>
+
+        {/* SAĞ: Kullanıcı Paneli & Reklamlar */}
+        <View style={styles.rightCol}>
+          <View style={styles.memberPanel}>
+            <Text style={styles.memberPanelTitle}>KULLANICI PANELİ</Text>
+            <View style={styles.memberCard}>
+              <Text style={styles.memberName}>{user ? user.email : 'Kayıtsız Ziyaretçi'}</Text>
+              <Text style={styles.memberTier}>{profile?.membership_tier ? profile.membership_tier.toUpperCase() : 'ZİYARETÇİ'}</Text>
+            </View>
+
+            <View style={styles.memberLinks}>
+              <TouchableOpacity style={styles.memberLinkBtn} onPress={handleOpenAuth}>
+                <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.memberLinkBtn} onPress={() => setViewMode('lists')}>
+                <Text style={styles.memberLinkText}>📁 Parça & Repertuvar Listelerim</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Onaylı Parça Ekleme Formu')}>
+                <Text style={styles.memberLinkText}>➕ Yeni Parça Ekle</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Dahili Mesaj Kutusu')}>
+                <Text style={styles.memberLinkText}>📩 Mesaj Kutusu</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Düzeltme önerileri listesi')}>
+                <Text style={styles.memberLinkText}>📝 Verdiğim Düzeltmeler</Text>
+              </TouchableOpacity>
+
+              {profile?.membership_tier === 'admin' && (
+                <TouchableOpacity style={[styles.memberLinkBtn, { backgroundColor: '#8b5cf6' }]} onPress={() => setActiveModal('admin')}>
+                  <Text style={[styles.memberLinkText, { color: '#ffffff', fontWeight: '700' }]}>⚙️ Master Admin Paneli</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        </TouchableWithoutFeedback>
+
+          <View style={styles.advBlock}>
+            <Text style={styles.advBlockTitle}>SPONSOR ALANI 1 (300x250)</Text>
+          </View>
+
+          <View style={styles.advBlock}>
+            <Text style={styles.advBlockTitle}>SPONSOR ALANI 2 (300x250)</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* DÜZELTME MODALI */}
+      <Modal visible={correctionModalVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Şarkı İçin Düzeltme Öner</Text>
+            <Text style={styles.modalSubtitle}>{selectedSong?.title} - {selectedSong?.artist}</Text>
+
+            <Text style={styles.label}>Önerilen Şarkı Sözü ve Akor Formatı:</Text>
+            <TextInput
+              style={styles.modalTextInput}
+              multiline
+              numberOfLines={10}
+              value={correctionText}
+              onChangeText={setCorrectionText}
+            />
+
+            <Text style={styles.label}>Ek Notunuz:</Text>
+            <TextInput
+              style={styles.modalNoteInput}
+              placeholder="Örn: Nakarat kısmındaki Dm basımı aslında F olmalı..."
+              placeholderTextColor="#64748b"
+              value={correctionNote}
+              onChangeText={setCorrectionNote}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setCorrectionModalVisible(false)}>
+                <Text style={styles.modalCancelText}>Vazgeç</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalSubmitBtn} onPress={submitCorrection} disabled={savingCorrection}>
+                <Text style={styles.modalSubmitText}>{savingCorrection ? 'Gönderiliyor...' : 'Öneriyi Gönder'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
-    </View>
-  );
-}
 
-function MiniGuitarChord({ chord, isPremium }: { chord: string; isPremium: boolean }) {
-  const voicings = getChordVoicings(chord);
-  const [voicingIdx, setVoicingIdx] = useState(0);
-
-  if (!voicings || voicings.length === 0) return <Text style={{ color: '#64748B', fontSize: 10 }}>-</Text>;
-  const current = voicings[voicingIdx] || voicings[0];
-  const minFret = current.baseFret;
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      {isPremium && voicings.length > 1 && (
-        <View style={styles.miniVoicingRow}>
-          <TouchableOpacity
-            disabled={voicingIdx === 0}
-            onPress={() => setVoicingIdx(Math.max(0, voicingIdx - 1))}
-            style={{ opacity: voicingIdx === 0 ? 0.3 : 1 }}
-          >
-            <ChevronLeft color="#38BDF8" size={12} />
-          </TouchableOpacity>
-          <Text style={styles.miniVoicingText}>v{voicingIdx + 1}</Text>
-          <TouchableOpacity
-            disabled={voicingIdx === voicings.length - 1}
-            onPress={() => setVoicingIdx(Math.min(voicings.length - 1, voicingIdx + 1))}
-            style={{ opacity: voicingIdx === voicings.length - 1 ? 0.3 : 1 }}
-          >
-            <ChevronRight color="#38BDF8" size={12} />
-          </TouchableOpacity>
-        </View>
+      {/* DİĞER MODALLAR */}
+      {activeModal === 'forum' && (
+        <ForumModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+          currentUser={user}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
+      {activeModal === 'events' && (
+        <EventsModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+          currentUser={user}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
+      {activeModal === 'courses' && (
+        <CoursesModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+          currentUser={user}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
+      {activeModal === 'store' && (
+        <StoreModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+          currentUser={user}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
+      {activeModal === 'subscription' && (
+        <SubscriptionModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+          currentUser={user}
+          onSuccess={() => {
+            fetchSession();
+            setActiveModal(null);
+          }}
+          onOpenAuth={handleOpenAuth}
+        />
+      )}
+      {activeModal === 'admin' && (
+        <AdminPanelModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+      {activeModal === 'tuner' && (
+        <TunerModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+        />
       )}
 
-      {minFret > 1 && <Text style={styles.miniFretText}>{minFret}.p</Text>}
-
-      <View style={styles.miniNutLine}>
-        {current.frets.map((f: number, i: number) => (
-          <Text key={i} style={[styles.miniNutTxt, f === -1 && { color: '#EF4444' }, f === 0 && { color: '#10B981' }]}>
-            {f === -1 ? '✕' : f === 0 ? '○' : ''}
-          </Text>
-        ))}
-      </View>
-
-      <View style={styles.miniGuitarBoard}>
-        {[0, 1, 2, 3].map((fIdx) => {
-          const currentFret = minFret + fIdx;
-          return (
-            <View key={fIdx} style={styles.miniGRow}>
-              {[0, 1, 2, 3, 4, 5].map((sIdx) => {
-                const hasDot = current.frets[sIdx] === currentFret;
-                return (
-                  <View key={sIdx} style={styles.miniGCell}>
-                    <View style={styles.miniGStringLine} />
-                    {hasDot && <View style={styles.miniGDot} />}
-                  </View>
-                );
-              })}
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-function MiniPianoChord({ chord }: { chord: string }) {
-  const { activeSemitones } = getPianoKeysForChord(chord);
-  const whiteKeys = PIANO_KEYS_2_OCTAVES.filter((k) => !k.isBlack).slice(0, 7);
-
-  return (
-    <View style={styles.miniPianoWrap}>
-      <View style={{ flexDirection: 'row', width: '100%', height: '100%' }}>
-        {whiteKeys.map((k) => {
-          const isActive = activeSemitones.includes(k.semitone);
-          return <View key={k.semitone} style={[styles.miniWKey, isActive && styles.miniKeyActive]} />;
-        })}
-      </View>
-    </View>
-  );
-}
-
-function MiniBassChord({ chord, isPremium }: { chord: string; isPremium: boolean }) {
-  const voicings = getBassVoicings(chord);
-  const [voicingIdx, setVoicingIdx] = useState(0);
-
-  if (!voicings || voicings.length === 0) return <Text style={{ color: '#64748B', fontSize: 10 }}>-</Text>;
-  const current = voicings[voicingIdx] || voicings[0];
-  const minFret = current.baseFret;
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      {isPremium && voicings.length > 1 && (
-        <View style={styles.miniVoicingRow}>
-          <TouchableOpacity disabled={voicingIdx === 0} onPress={() => setVoicingIdx(Math.max(0, voicingIdx - 1))}>
-            <ChevronLeft color="#38BDF8" size={12} />
-          </TouchableOpacity>
-          <Text style={styles.miniVoicingText}>v{voicingIdx + 1}</Text>
-          <TouchableOpacity disabled={voicingIdx === voicings.length - 1} onPress={() => setVoicingIdx(Math.min(voicings.length - 1, voicingIdx + 1))}>
-            <ChevronRight color="#38BDF8" size={12} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {minFret > 1 && <Text style={styles.miniFretText}>{minFret}.p</Text>}
-
-      <View style={[styles.miniGuitarBoard, { width: 64 }]}>
-        {[0, 1, 2, 3].map((fIdx) => {
-          const currentFret = minFret + fIdx;
-          return (
-            <View key={fIdx} style={styles.miniGRow}>
-              {[0, 1, 2, 3].map((sIdx) => {
-                const tone = current.chordTones.find((t: any) => t.stringIdx === sIdx && t.fret === currentFret);
-                return (
-                  <View key={sIdx} style={styles.miniGCell}>
-                    <View style={styles.miniGStringLine} />
-                    {tone && <View style={[styles.miniGDot, { backgroundColor: tone.isRoot ? '#38BDF8' : '#F87171' }]} />}
-                  </View>
-                );
-              })}
-            </View>
-          );
-        })}
+      {/* FOOTER */}
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>© 2026 360DESK MÜZİK TEKNOLOJİLERİ • STAGE MORPHEUS PRO ECOSYSTEM</Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  outerContainer: { flex: 1, backgroundColor: '#070B13' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
-  subNavBar: {
-    width: '100%',
-    backgroundColor: '#0B1120',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-    alignItems: 'center',
-  },
-  subNavBarInner: {
-    width: '100%',
-    maxWidth: 1280,
+  container: { flex: 1, backgroundColor: '#090d16' },
+  topNav: {
+    height: 52,
+    backgroundColor: '#0f172a',
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b'
   },
-  subNavLinks: { flexDirection: 'row', gap: 18, alignItems: 'center' },
-  subNavLinkItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  subNavLinkText: { color: '#CBD5E1', fontSize: 12, fontWeight: '600' },
-
-  adminTriggerBtn: {
-    flexDirection: 'row',
+  topNavLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  brandTitle: { color: '#f8fafc', fontSize: 17, fontWeight: '800', letterSpacing: 0.5 },
+  brandSub: { color: '#38bdf8', fontSize: 10 },
+  mainMenuLinks: { flexDirection: 'row', gap: 12 },
+  menuBtn: { paddingVertical: 4 },
+  menuBtnText: { color: '#94a3b8', fontSize: 11, fontWeight: '700' },
+  topNavRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  webAppSwitch: { flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 4, padding: 2 },
+  switchBtn: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 3 },
+  switchActive: { backgroundColor: '#0284c7' },
+  switchText: { color: '#f8fafc', fontSize: 10, fontWeight: '700' },
+  authBtns: { flexDirection: 'row', gap: 8 },
+  loginBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
+  loginText: { color: '#f8fafc', fontSize: 11 },
+  registerBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, backgroundColor: '#0284c7' },
+  registerText: { color: '#f8fafc', fontSize: 11, fontWeight: '700' },
+  userBadge: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
+  advBanner: { height: 42, backgroundColor: '#0284c710', justifyContent: 'center', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#0284c725' },
+  advBannerText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
+  
+  // ARAMA VE FİLTRELEME BÖLÜMÜ (ORTALANMIŞ & KONTROLLÜ GENİŞLİK)
+  searchSection: { 
+    backgroundColor: '#0d1322', 
+    paddingVertical: 14, 
+    paddingHorizontal: 16,
+    borderBottomWidth: 1, 
+    borderBottomColor: '#1e293b', 
+    zIndex: 50,
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#1E293B',
+    justifyContent: 'center'
+  },
+  searchInnerWrapper: {
+    width: '100%',
+    maxWidth: 960,
+    alignItems: 'center'
+  },
+  searchInput: { 
+    backgroundColor: '#1e293b', 
+    height: 40, 
+    borderRadius: 8, 
+    paddingHorizontal: 14, 
+    color: '#f8fafc', 
+    fontSize: 13, 
+    marginBottom: 10,
+    width: '100%',
+    maxWidth: 680,
     borderWidth: 1,
-    borderColor: '#0284C7',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 4,
+    borderColor: '#334155'
   },
-  adminTriggerText: { color: '#38BDF8', fontSize: 10, fontWeight: 'bold' },
-
-  userStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#161F30',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  userStatusText: { color: '#F8FAFC', fontSize: 11, fontWeight: 'bold' },
-  upgradeTopBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#312E81',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    borderRadius: 4,
-  },
-  upgradeTopBtnText: { color: '#F59E0B', fontSize: 10, fontWeight: 'bold' },
-  logoutBtn: { paddingVertical: 2, paddingHorizontal: 5 },
-  logoutText: { color: '#EF4444', fontSize: 10, fontWeight: 'bold' },
-
-  loginTriggerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#1E293B',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  loginTriggerText: { color: '#CBD5E1', fontSize: 11, fontWeight: 'bold' },
-
-  registerTriggerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#0284C7',
-    paddingVertical: 4,
-    paddingHorizontal: 9,
-    borderRadius: 4,
-  },
-  registerTriggerText: { color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' },
-
-  topAdSection: {
+  filterBar: { 
+    marginBottom: 10, 
+    zIndex: 40,
     width: '100%',
     alignItems: 'center',
-    paddingVertical: 8,
-    backgroundColor: '#070B13',
+    justifyContent: 'center'
   },
-  adBox728: {
+  filterRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    flexWrap: 'wrap', 
+    gap: 6 
+  },
+  filterChip: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4 },
+  activeChip: { backgroundColor: '#0284c7' },
+  filterChipText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
+  activeChipText: { color: '#ffffff' },
+  filterChipSpecial: { backgroundColor: '#8b5cf620', borderWidth: 1, borderColor: '#8b5cf6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4 },
+  activeChipSpecial: { backgroundColor: '#8b5cf6' },
+  filterChipTextSpecial: { color: '#c084fc', fontSize: 11, fontWeight: '700' },
+
+  // DROPDOWN STİLLERİ
+  dropdownContainer: { position: 'relative' },
+  dropdownBtn: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
+  activeDropdownBtn: { borderColor: '#38bdf8', backgroundColor: '#0284c725' },
+  dropdownBtnText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
+  activeDropdownBtnText: { color: '#38bdf8' },
+  dropdownMenu: { position: 'absolute', top: 30, left: 0, width: 140, backgroundColor: '#0f172a', borderRadius: 6, borderWidth: 1, borderColor: '#334155', zIndex: 100, elevation: 10 },
+  dropdownItem: { paddingHorizontal: 10, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  activeDropdownItem: { backgroundColor: '#0284c730' },
+  dropdownItemText: { color: '#94a3b8', fontSize: 11 },
+  activeDropdownItemText: { color: '#38bdf8', fontWeight: '700' },
+
+  // ALFABE ŞERİDİ (ORTALANMIŞ)
+  alphaScrollView: {
     width: '100%',
-    maxWidth: 728,
-    height: 48,
-    backgroundColor: '#0F172A',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    gap: 10,
+    maxWidth: 820
   },
-  adTag: {
-    backgroundColor: '#0284C7',
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '900',
-    paddingVertical: 2,
-    paddingHorizontal: 5,
-    borderRadius: 3,
-  },
-  adMessage: { color: '#94A3B8', fontSize: 11, fontWeight: '500', flex: 1 },
-
-  centerContainerWrapper: { flex: 1, width: '100%', alignItems: 'center' },
-  mainContainer1280: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 1280,
-    flexDirection: 'row',
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: '#1E293B',
-    backgroundColor: '#0B1120',
-  },
-
-  leftColumn: {
-    width: 310,
-    backgroundColor: '#090E1A',
-    borderRightWidth: 1,
-    borderRightColor: '#1E293B',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  leftHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-  },
-  leftHeaderTitle: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
-  songCountBadge: { color: '#64748B', fontSize: 11, fontWeight: 'bold' },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#161F30',
-    margin: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 6,
-    gap: 6,
-  },
-  searchInput: { flex: 1, color: '#F8FAFC', fontSize: 12, outlineStyle: 'none' } as any,
-
-  filterRowCompact: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    marginBottom: 6,
-  },
-  sortBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#161F30',
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  sortBtnActive: { backgroundColor: '#312E81' },
-  sortBtnText: { color: '#94A3B8', fontSize: 10, fontWeight: 'bold' },
-  originGroup: { flexDirection: 'row', backgroundColor: '#161F30', borderRadius: 4, padding: 1 },
-  originBtn: { paddingVertical: 3, paddingHorizontal: 6, borderRadius: 3 },
-  originBtnActive: { backgroundColor: '#0284C7' },
-  originText: { color: '#64748B', fontSize: 10, fontWeight: 'bold' },
-  originTextActive: { color: '#FFFFFF' },
-
-  genreBar: { maxHeight: 26, marginBottom: 4 },
-  genreChip: { backgroundColor: '#161F30', paddingVertical: 3, paddingHorizontal: 7, borderRadius: 4 },
-  genreChipActive: { backgroundColor: '#0284C7' },
-  genreText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
-  genreTextActive: { color: '#FFFFFF' },
-
-  decadeBar: { maxHeight: 26, marginBottom: 6 },
-  decadeChip: { backgroundColor: '#161F30', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-  decadeChipActive: { backgroundColor: '#38BDF8' },
-  decadeText: { color: '#64748B', fontSize: 10, fontWeight: 'bold' },
-  decadeTextActive: { color: '#000000' },
-
-  alphaBar: { maxHeight: 28, marginBottom: 6 },
-  alphaBtn: { paddingVertical: 2, paddingHorizontal: 5, borderRadius: 3, backgroundColor: '#161F30' },
-  alphaBtnActive: { backgroundColor: '#38BDF8' },
-  alphaTxt: { color: '#64748B', fontSize: 9, fontWeight: 'bold' },
-  alphaTxtActive: { color: '#000000' },
-
-  songListScroll: { flex: 1, paddingHorizontal: 8 },
-  songCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#0F172A',
-    padding: 8,
-    borderRadius: 6,
-    marginBottom: 5,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  songCardActive: { borderColor: '#38BDF8', backgroundColor: '#161F30' },
-  songCardTitle: { color: '#F8FAFC', fontSize: 12, fontWeight: 'bold' },
-  songCardTitleActive: { color: '#38BDF8' },
-  songCardArtist: { color: '#64748B', fontSize: 10, marginTop: 1 },
-  versionBadge: { backgroundColor: '#334155', paddingVertical: 1, paddingHorizontal: 4, borderRadius: 3 },
-  versionBadgeText: { color: '#38BDF8', fontSize: 9, fontWeight: 'bold' },
-  ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  ratingText: { color: '#F59E0B', fontSize: 10, fontWeight: 'bold' },
-  keyTag: { backgroundColor: '#1E293B', paddingVertical: 1, paddingHorizontal: 5, borderRadius: 3 },
-  keyTagText: { color: '#38BDF8', fontSize: 9, fontWeight: 'bold' },
-  emptyText: { color: '#64748B', fontSize: 11, textAlign: 'center', marginTop: 24 },
-
-  centerColumn: { flex: 1, backgroundColor: '#070B13', display: 'flex', flexDirection: 'column' },
-  centerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-    backgroundColor: '#0B1120',
-  },
-  centerSongTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
-  centerSongArtist: { color: '#94A3B8', fontSize: 11, marginTop: 1 },
-  versionDescBadge: { backgroundColor: '#1E293B', paddingVertical: 1, paddingHorizontal: 6, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
-  versionDescText: { color: '#38BDF8', fontSize: 10, fontWeight: 'bold' },
-
-  aiArrangerHeaderBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E1B4B',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 5,
-    gap: 4,
-  },
-  aiArrangerHeaderBtnText: { color: '#F59E0B', fontWeight: 'bold', fontSize: 10 },
-
-  bridgeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E293B',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 5,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  bridgeBtnText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 10 },
-  stageDirectBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0284C7',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 5,
-    gap: 4,
-  },
-  stageDirectBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 10 },
-
-  ratingBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 5,
-    backgroundColor: '#0A0F1D',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-  },
-  rateLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
-  ratingDetailText: { color: '#CBD5E1', fontSize: 11, fontWeight: 'bold' },
-  visitorNotice: { color: '#38BDF8', fontSize: 10, fontStyle: 'italic' },
-  votedNotice: { color: '#10B981', fontSize: 10, fontWeight: 'bold' },
-  viewsCountText: { color: '#64748B', fontSize: 10, fontWeight: 'bold' },
-
-  readerControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    backgroundColor: '#0F172A',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-  },
-  tonDisplay: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  tonLabel: { color: '#64748B', fontSize: 10, fontWeight: 'bold' },
-  tonValue: { color: '#38BDF8', fontSize: 12, fontWeight: 'bold' },
-  transGroup: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  circleBtn: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#0284C7',
+  alphaScrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 5
   },
-  transValueText: { color: '#F8FAFC', fontSize: 11, fontWeight: 'bold', minWidth: 18, textAlign: 'center' },
-  fontBtn: { backgroundColor: '#1E293B', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
-  fontBtnText: { color: '#94A3B8', fontSize: 10, fontWeight: 'bold' },
+  alphaChar: { width: 24, height: 24, justifyContent: 'center', alignItems: 'center', borderRadius: 4, backgroundColor: '#151e33' },
+  activeAlphaChar: { backgroundColor: '#0284c7' },
+  alphaCharText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
+  activeAlphaCharText: { color: '#ffffff' },
 
-  lyricsScroll: { flex: 1 },
-  lyricsScrollContent: { padding: 18, paddingBottom: 60 },
-
-  chordsPreviewSection: {
-    backgroundColor: '#0B1120',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 10,
-    marginBottom: 16,
+  mainGrid: { flex: 1, flexDirection: 'row' },
+  leftCol: { width: 280, borderRightWidth: 1, borderRightColor: '#1e293b', backgroundColor: '#090d16' },
+  colHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  colHeaderText: { color: '#f8fafc', fontWeight: '700', fontSize: 12 },
+  counterText: { color: '#38bdf8', fontSize: 11 },
+  songList: { flex: 1 },
+  songCard: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, borderBottomColor: '#131c2e', alignItems: 'center' },
+  songCardSelected: { backgroundColor: '#1e293b' },
+  songCardTitle: { color: '#cbd5e1', fontSize: 12, fontWeight: '600' },
+  songCardArtist: { color: '#64748b', fontSize: 10, marginTop: 2 },
+  keyTag: { color: '#38bdf8', fontWeight: '700', fontSize: 11 },
+  textWhite: { color: '#ffffff' },
+  centerCol: { flex: 1, backgroundColor: '#070a12' },
+  songViewWrapper: { padding: 16 },
+  actionHeaderRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  actionBtnAI: { backgroundColor: '#8b5cf6', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
+  actionBtnSecondary: { backgroundColor: '#1e293b', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
+  actionBtnPro: { backgroundColor: '#f59e0b', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
+  disabledBtn: { opacity: 0.5 },
+  actionBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 11 },
+  actionBtnTextSec: { color: '#cbd5e1', fontWeight: '600', fontSize: 11 },
+  actionBtnTextPro: { color: '#000000', fontWeight: '800', fontSize: 11 },
+  songHeaderBox: { borderBottomWidth: 1, borderBottomColor: '#1e293b', paddingBottom: 12, marginBottom: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 },
+  songMainTitle: { color: '#f8fafc', fontSize: 20, fontWeight: '800' },
+  stdBadge: { backgroundColor: '#0284c720', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+  stdBadgeText: { color: '#38bdf8', fontSize: 10, fontWeight: '600' },
+  statsRow: { flexDirection: 'row', gap: 12, marginLeft: 'auto' },
+  statItem: { color: '#94a3b8', fontSize: 11 },
+  artistRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  artistName: { color: '#64748b', fontSize: 12 },
+  fontSizeControls: { flexDirection: 'row', gap: 5 },
+  sizeBtn: { backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
+  sizeBtnText: { color: '#94a3b8', fontWeight: '700', fontSize: 11 },
+  
+  tabSection: { marginVertical: 8, backgroundColor: '#0d1322', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#1e293b' },
+  tabInstrumentSelector: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  instBtn: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 4, backgroundColor: '#1e293b' },
+  instBtnActive: { backgroundColor: '#0284c7' },
+  instBtnText: { color: '#94a3b8', fontSize: 10, fontWeight: '700' },
+  chordsScroll: { flexDirection: 'row', paddingVertical: 4 },
+  chordDiagramCard: { 
+    backgroundColor: '#090d16', 
+    borderRadius: 6, 
+    padding: 6, 
+    marginRight: 8, 
+    borderWidth: 1, 
+    borderColor: '#1e293b', 
+    alignItems: 'center', 
+    justifyContent: 'center',
   },
-  chordsPreviewHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-  },
-  chordsPreviewTitle: { color: '#F8FAFC', fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
-  webInstGroup: { flexDirection: 'row', backgroundColor: '#070B13', borderRadius: 4, padding: 2, gap: 2 },
-  webInstBtn: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 3 },
-  webInstBtnActive: { backgroundColor: '#1E293B' },
-  webInstBtnText: { color: '#64748B', fontSize: 9, fontWeight: 'bold' },
-  webInstBtnTextActive: { color: '#38BDF8' },
 
-  premiumInstPrompt: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#1E1B4B',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-  },
-  premiumInstPromptText: { color: '#F59E0B', fontSize: 10, fontWeight: 'bold' },
-
-  chordCardsRow: { flexDirection: 'row', gap: 10, paddingVertical: 4 },
-  miniChordCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 6,
-    alignItems: 'center',
-    minWidth: 80,
-  },
-  miniChordCardName: { color: '#F87171', fontWeight: '900', fontSize: 12, marginBottom: 4 },
-
-  miniVoicingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
-  miniVoicingText: { color: '#38BDF8', fontSize: 8, fontWeight: 'bold' },
-  miniFretText: { color: '#38BDF8', fontSize: 8, fontWeight: 'bold', alignSelf: 'flex-start' },
-  miniNutLine: { flexDirection: 'row', width: 64, justifyContent: 'space-between', marginBottom: 1 },
-  miniNutTxt: { width: 10, textAlign: 'center', fontSize: 8, fontWeight: 'bold' },
-  miniGuitarBoard: { width: 64, borderTopWidth: 2, borderTopColor: '#E2E8F0', backgroundColor: '#070B13' },
-  miniGRow: { flexDirection: 'row', height: 14, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
-  miniGCell: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  miniGStringLine: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: '#334155' },
-  miniGDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#F87171', zIndex: 2 },
-
-  miniPianoWrap: { width: 70, height: 35, backgroundColor: '#070B13', borderWidth: 1, borderColor: '#334155', borderRadius: 3, overflow: 'hidden' },
-  miniWKey: { flex: 1, backgroundColor: '#F8FAFC', borderRightWidth: 1, borderRightColor: '#94A3B8' },
-  miniKeyActive: { backgroundColor: '#F87171' },
-
-  lineBox: { marginBottom: 5 },
-  chordOnlyText: { color: '#F87171', fontWeight: 'bold', lineHeight: 20 },
-  chordLyricRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 },
-  heceColumn: { flexDirection: 'column', alignItems: 'flex-start', marginRight: 1 },
-  aboveChord: { color: '#F87171', fontWeight: '900', marginBottom: 1, letterSpacing: 0.5 },
-  lyricText: { color: '#E2E8F0', lineHeight: 20 },
-
-  rightColumn: {
-    width: 310,
-    backgroundColor: '#090E1A',
-    borderLeftWidth: 1,
-    borderLeftColor: '#1E293B',
-    padding: 10,
-    alignItems: 'center',
-  },
-  adSkyscraper300x600: {
-    width: '100%',
-    height: 520,
-    backgroundColor: '#0F172A',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 14,
-    alignItems: 'center',
-  },
-  sponsorCleanBox: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, gap: 14 },
-  sponsorCleanTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: 'bold', textAlign: 'center' },
-  sponsorCleanText: { color: '#94A3B8', fontSize: 11, textAlign: 'center', lineHeight: 18 },
-  sponsorBannerLine: { width: 60, height: 2, backgroundColor: '#0284C7', borderRadius: 1 },
-  adUpgradeBtn: {
-    backgroundColor: '#F59E0B',
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-  },
-  adUpgradeBtnText: { color: '#0F172A', fontSize: 11, fontWeight: '900' },
-  sponsorBrandFoot: { color: '#64748B', fontSize: 9, fontWeight: '900', letterSpacing: 1 },
-
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-  loginModalBox: { width: '100%', maxWidth: 380, backgroundColor: '#1E293B', borderRadius: 12, padding: 18, borderWidth: 1, borderColor: '#334155' },
-  modalCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  authTabSwitcher: { flexDirection: 'row', backgroundColor: '#0F172A', borderRadius: 6, padding: 2, gap: 4 },
-  authTabItem: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4 },
-  authTabItemActive: { backgroundColor: '#1E293B' },
-  authTabLabel: { color: '#64748B', fontSize: 11, fontWeight: 'bold' },
-  authTabLabelActive: { color: '#38BDF8' },
-
-  formInput: { backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#334155', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, color: '#F8FAFC', fontSize: 12, marginBottom: 10, outlineStyle: 'none' } as any,
-  modalConfirmBtn: { backgroundColor: '#0284C7', paddingVertical: 9, borderRadius: 6, alignItems: 'center', marginTop: 4 },
-  modalConfirmBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
-  authNoticeFooter: { color: '#64748B', fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 14 },
-
-  aiModalBox: { width: '100%', maxWidth: 440, backgroundColor: '#1E293B', borderRadius: 12, padding: 18, borderWidth: 1, borderColor: '#334155' },
-  modalCardTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold' },
-  aiModalDesc: { color: '#94A3B8', fontSize: 11, lineHeight: 16, marginBottom: 12 },
-  styleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F172A',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  styleName: { color: '#F8FAFC', fontSize: 12, fontWeight: 'bold' },
-  styleBadge: { backgroundColor: '#1E293B', paddingVertical: 1, paddingHorizontal: 5, borderRadius: 3 },
-  styleBadgeText: { color: '#F59E0B', fontSize: 9, fontWeight: 'bold' },
-  styleDesc: { color: '#64748B', fontSize: 10, marginTop: 2 },
+  transRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', padding: 10, borderRadius: 6, marginVertical: 10 },
+  keyPickerWrap: { flexDirection: 'row', alignItems: 'center', position: 'relative' },
+  tonLabel: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
+  keySelectorBtn: { backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
+  keySelectorBtnText: { color: '#38bdf8', fontWeight: '700', fontSize: 12 },
+  keyDropdownMenu: { position: 'absolute', top: 32, left: 35, width: 80, maxHeight: 160, backgroundColor: '#1e293b', borderRadius: 5, zIndex: 20, borderWidth: 1, borderColor: '#334155' },
+  keyDropItem: { padding: 5, borderBottomWidth: 1, borderBottomColor: '#334155' },
+  keyDropText: { color: '#f8fafc', fontSize: 11, textAlign: 'center' },
+  transposeButtons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  transBtn: { backgroundColor: '#1e293b', width: 28, height: 28, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
+  transBtnText: { color: '#f8fafc', fontSize: 14, fontWeight: '700' },
+  transBtnZero: { backgroundColor: '#0284c7', width: 28, height: 28, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
+  transBtnZeroText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
+  transOffset: { color: '#94a3b8', fontSize: 11, marginLeft: 4 },
+  lyricsBox: { backgroundColor: '#05080e', padding: 16, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', marginVertical: 8 },
+  lyricsText: { color: '#f8fafc', fontFamily: 'monospace', lineHeight: 22 },
+  correctionBtn: { marginTop: 12, padding: 10, borderRadius: 6, backgroundColor: '#1e293b', alignItems: 'center' },
+  correctionBtnText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
+  emptyCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyCenterText: { color: '#475569', fontSize: 13 },
+  rightCol: { width: 300, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b', gap: 12 },
+  memberPanel: { backgroundColor: '#0f172a', padding: 12, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b' },
+  memberPanelTitle: { color: '#38bdf8', fontSize: 11, fontWeight: '700', marginBottom: 8 },
+  memberCard: { marginBottom: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  memberName: { color: '#f8fafc', fontSize: 12, fontWeight: '600' },
+  memberTier: { color: '#f59e0b', fontSize: 10, fontWeight: '700', marginTop: 2 },
+  memberLinks: { gap: 6 },
+  memberLinkBtn: { backgroundColor: '#1e293b', padding: 7, borderRadius: 4 },
+  memberLinkText: { color: '#cbd5e1', fontSize: 10 },
+  advBlock: { height: 180, backgroundColor: '#0d1322', borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed' },
+  advBlockTitle: { color: '#475569', fontSize: 10, fontWeight: '600' },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: 500, backgroundColor: '#0f172a', borderRadius: 8, padding: 16, borderWidth: 1, borderColor: '#1e293b' },
+  modalTitle: { color: '#f8fafc', fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  modalSubtitle: { color: '#38bdf8', fontSize: 12, marginBottom: 12 },
+  label: { color: '#94a3b8', fontSize: 11, marginBottom: 4, fontWeight: '600' },
+  modalTextInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontFamily: 'monospace', fontSize: 12, height: 140, textAlignVertical: 'top', borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
+  modalNoteInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontSize: 12, height: 36, borderWidth: 1, borderColor: '#1e293b', marginBottom: 16 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  modalCancelBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 5, backgroundColor: '#1e293b' },
+  modalCancelText: { color: '#94a3b8', fontSize: 12 },
+  modalSubmitBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 5, backgroundColor: '#0284c7' },
+  modalSubmitText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
+  footer: { height: 30, backgroundColor: '#090d16', justifyContent: 'center', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#1e293b' },
+  footerText: { color: '#475569', fontSize: 9, letterSpacing: 0.5 }
 });
