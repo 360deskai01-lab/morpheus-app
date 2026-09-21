@@ -16,6 +16,7 @@ import { PianoView, FretboardView } from './PianoView';
 import { reharmonizeSong, ReharmonizeStyle, ReharmonizeResult } from '../services/aiArrangerService';
 
 // Modallar
+import AuthModal from './AuthModal';
 import CoursesModal from './CoursesModal';
 import EventsModal from './EventsModal';
 import ForumModal from './ForumModal';
@@ -118,8 +119,6 @@ export default function MorpheusWebPortal() {
   const [addToListModalVisible, setAddToListModalVisible] = useState(false);
   const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
-  const [selectedPlaylistSongs, setSelectedPlaylistSongs] = useState<any[]>([]);
-  const [activeViewingPlaylist, setActiveViewingPlaylist] = useState<any | null>(null);
 
   // Admin Dashboard State'leri
   const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users'>('corrections');
@@ -240,7 +239,6 @@ export default function MorpheusWebPortal() {
     setLoading(false);
   };
 
-  // --- REPERTUVAR & PLAYLIST FONKSİYONLARI ---
   const fetchPlaylists = async (userId: string) => {
     try {
       const { data } = await supabase
@@ -258,7 +256,7 @@ export default function MorpheusWebPortal() {
 
   const handleCreatePlaylist = async () => {
     if (!user) {
-      alert('Repertuvar listesi oluşturmak için giriş yapmalısınız.');
+      handleOpenAuth();
       return;
     }
     if (!newPlaylistTitle.trim()) return;
@@ -295,7 +293,6 @@ export default function MorpheusWebPortal() {
     if (error) {
       alert('Bu parça zaten listede veya bir hata oluştu: ' + error.message);
     } else {
-      // Şarkının playlist sayısını artır
       await supabase
         .from('morfeus_songs')
         .update({ playlist_count: (selectedSong.playlist_count || 0) + 1 })
@@ -307,11 +304,10 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  // --- PUANLAMA MOTORU (1-5 YILDIZ) ---
   const handleRateSong = async (stars: number) => {
     if (!selectedSong) return;
     if (!user) {
-      alert('Puan vermek için lütfen giriş yapın.');
+      handleOpenAuth();
       return;
     }
     setSubmittingRating(true);
@@ -546,8 +542,9 @@ export default function MorpheusWebPortal() {
     }
   };
 
+  // Doğrudan kimlik doğrulama modalını (AuthModal) açar
   const handleOpenAuth = () => {
-    setActiveModal('subscription');
+    setActiveModal('auth');
   };
 
   return (
@@ -1195,7 +1192,7 @@ export default function MorpheusWebPortal() {
                       <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
                     </TouchableOpacity>
                     
-                    {/* PARÇA & REPERTUVAR LİSTELERİM MODALI TETİKLER */}
+                    {/* REPERTUVAR LİSTELERİ MODALI */}
                     <TouchableOpacity
                       style={[styles.memberLinkBtn, { backgroundColor: '#0284c725', borderColor: '#0284c7', borderWidth: 1 }]}
                       onPress={() => setPlaylistModalVisible(true)}
@@ -1303,7 +1300,7 @@ export default function MorpheusWebPortal() {
         </View>
       )}
 
-      {/* REPERTUVAR LİSTELERİ MODALI (PLAYLIST MANAGEMENT) */}
+      {/* REPERTUVAR LİSTELERİ MODALI */}
       <Modal visible={playlistModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalContent, { width: 560 }]}>
@@ -1314,7 +1311,6 @@ export default function MorpheusWebPortal() {
               </TouchableOpacity>
             </View>
 
-            {/* Yeni Liste Oluşturma */}
             <View style={styles.newPlaylistRow}>
               <TextInput
                 style={styles.playlistInput}
@@ -1334,7 +1330,6 @@ export default function MorpheusWebPortal() {
               </TouchableOpacity>
             </View>
 
-            {/* Listeler */}
             <ScrollView style={{ maxHeight: 320, marginTop: 12 }}>
               {playlists.length === 0 ? (
                 <View style={styles.emptyListBox}>
@@ -1517,6 +1512,18 @@ export default function MorpheusWebPortal() {
           </View>
         </View>
       </Modal>
+
+      {/* GİRİŞ & KAYIT MODALI (AUTH MODAL) */}
+      {activeModal === 'auth' && (
+        <AuthModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+          onSuccess={() => {
+            fetchSession();
+            setActiveModal(null);
+          }}
+        />
+      )}
 
       {/* SİSTEM MODALLARI */}
       {activeModal === 'forum' && (
@@ -1717,7 +1724,7 @@ const styles = StyleSheet.create({
   alphaCharText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
   activeAlphaCharText: { color: '#ffffff' },
 
-  // 3 KOLONLU GÖVDE: 2 KAT UZATILMIŞ DİKEY BOYUT (1100px)
+  // 3 KOLONLU GÖVDE
   mainGrid: { flexDirection: 'row', minHeight: 1100, height: 1100 },
   leftCol: { 
     width: 280, 
