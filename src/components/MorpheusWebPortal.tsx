@@ -96,7 +96,7 @@ export default function MorpheusWebPortal() {
   const [fontSize, setFontSize] = useState(15);
   const [instrumentTab, setInstrumentTab] = useState<'gitar' | 'piyano' | 'bass'>('piyano');
 
-  // Auto-Scroll (Otomatik Kaydırma) State'leri
+  // Auto-Scroll State'leri
   const [isScrolling, setIsScrolling] = useState(false);
   const [scrollSpeed, setScrollSpeed] = useState<number>(1);
   const scrollRef = useRef<ScrollView>(null);
@@ -109,7 +109,7 @@ export default function MorpheusWebPortal() {
   const [aiResult, setAiResult] = useState<ReharmonizeResult | null>(null);
   const [activeArrangementContent, setActiveArrangementContent] = useState<string | null>(null);
 
-  // Puanlama (Rating) State'leri
+  // Puanlama State'leri
   const [userVote, setUserVote] = useState<number | null>(null);
   const [submittingRating, setSubmittingRating] = useState(false);
 
@@ -121,11 +121,14 @@ export default function MorpheusWebPortal() {
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
 
   // Admin Dashboard State'leri
-  const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users'>('corrections');
+  const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users' | 'forum_mod' | 'events_mod'>('corrections');
   const [pendingCorrections, setPendingCorrections] = useState<any[]>([]);
   const [allProfiles, setAllProfiles] = useState<any[]>([]);
+  const [forumPosts, setForumPosts] = useState<any[]>([]);
+  const [eventsList, setEventsList] = useState<any[]>([]);
   const [loadingCorrections, setLoadingCorrections] = useState(false);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [loadingForum, setLoadingForum] = useState(false);
   
   // Yeni Şarkı Formu
   const [newTitle, setNewTitle] = useState('');
@@ -135,6 +138,13 @@ export default function MorpheusWebPortal() {
   const [newYear, setNewYear] = useState('2024');
   const [newContent, setNewContent] = useState('');
   const [savingNewSong, setSavingNewSong] = useState(false);
+
+  // Yeni Etkinlik Formu
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventCity, setEventCity] = useState('İstanbul');
+  const [eventDate, setEventDate] = useState('');
+  const [eventVenue, setEventVenue] = useState('');
+  const [savingEvent, setSavingEvent] = useState(false);
 
   // Modallar
   const [activeModal, setActiveModal] = useState<string | null>(null);
@@ -249,9 +259,7 @@ export default function MorpheusWebPortal() {
       if (data) {
         setPlaylists(data);
       }
-    } catch {
-      // Tablo henüz yoksa sessizce geç
-    }
+    } catch {}
   };
 
   const handleCreatePlaylist = async () => {
@@ -335,15 +343,14 @@ export default function MorpheusWebPortal() {
     }
   };
 
+  // --- ADMIN MODERASYON FONKSİYONLARI ---
   const fetchCorrections = async () => {
     setLoadingCorrections(true);
     const { data } = await supabase
       .from('song_corrections')
       .select('*, morfeus_songs(title, artist)')
       .order('id', { ascending: false });
-    if (data) {
-      setPendingCorrections(data);
-    }
+    if (data) setPendingCorrections(data);
     setLoadingCorrections(false);
   };
 
@@ -353,10 +360,59 @@ export default function MorpheusWebPortal() {
       .from('morfeus_profiles')
       .select('*')
       .order('created_at', { ascending: false });
-    if (data) {
-      setAllProfiles(data);
-    }
+    if (data) setAllProfiles(data);
     setLoadingProfiles(false);
+  };
+
+  const fetchForumPosts = async () => {
+    setLoadingForum(true);
+    const { data } = await supabase
+      .from('morfeus_forum_posts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (data) setForumPosts(data);
+    setLoadingForum(false);
+  };
+
+  const handleDeleteForumPost = async (id: number) => {
+    const { error } = await supabase.from('morfeus_forum_posts').delete().eq('id', id);
+    if (!error) {
+      alert('Forum iletisi kaldırıldı.');
+      fetchForumPosts();
+    }
+  };
+
+  const fetchEvents = async () => {
+    const { data } = await supabase
+      .from('morfeus_events')
+      .select('*')
+      .order('id', { ascending: false });
+    if (data) setEventsList(data);
+  };
+
+  const handleSaveEvent = async () => {
+    if (!eventTitle || !eventDate || !eventVenue) {
+      alert('Lütfen etkinlik başlığı, tarih ve mekan bilgilerini girin.');
+      return;
+    }
+    setSavingEvent(true);
+    const { error } = await supabase.from('morfeus_events').insert({
+      title: eventTitle,
+      city: eventCity,
+      event_date: eventDate,
+      venue: eventVenue
+    });
+    setSavingEvent(false);
+    if (!error) {
+      alert('Etkinlik takvime eklendi!');
+      setEventTitle('');
+      setEventDate('');
+      setEventVenue('');
+      fetchEvents();
+    } else {
+      alert('Hata: ' + error.message);
+    }
   };
 
   const handleUpdateUserRole = async (userId: string, newTier: string) => {
@@ -542,7 +598,6 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  // Doğrudan kimlik doğrulama modalını (AuthModal) açar
   const handleOpenAuth = () => {
     setActiveModal('auth');
   };
@@ -605,10 +660,11 @@ export default function MorpheusWebPortal() {
             <View style={styles.adminStatsBox}>
               <Text style={styles.adminStatChip}>📚 Şarkılar: {songs.length}</Text>
               <Text style={styles.adminStatChip}>⏳ Düzeltmeler: {pendingCorrections.length}</Text>
-              <Text style={styles.adminStatChip}>👥 Kullanıcılar: {allProfiles.length}</Text>
+              <Text style={styles.adminStatChip}>👥 Üyeler: {allProfiles.length}</Text>
             </View>
           </View>
 
+          {/* DASHBOARD MODÜL SEKMELERİ */}
           <View style={styles.adminTabSelector}>
             <TouchableOpacity
               style={[styles.adminTabBtn, adminTab === 'corrections' && styles.activeAdminTabBtn]}
@@ -618,7 +674,7 @@ export default function MorpheusWebPortal() {
               }}
             >
               <Text style={[styles.adminTabBtnText, adminTab === 'corrections' && styles.activeAdminTabText]}>
-                📝 Düzeltme Onay Havuzu
+                📝 Düzeltme Havuzu
               </Text>
             </TouchableOpacity>
 
@@ -627,7 +683,7 @@ export default function MorpheusWebPortal() {
               onPress={() => setAdminTab('add_song')}
             >
               <Text style={[styles.adminTabBtnText, adminTab === 'add_song' && styles.activeAdminTabText]}>
-                ➕ Yeni Parça Ekle
+                ➕ Şarkı Ekle
               </Text>
             </TouchableOpacity>
 
@@ -639,13 +695,38 @@ export default function MorpheusWebPortal() {
               }}
             >
               <Text style={[styles.adminTabBtnText, adminTab === 'users' && styles.activeAdminTabText]}>
-                👥 Kullanıcı & Yetki Yönetimi
+                👥 Kullanıcı Yetki Masası
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.adminTabBtn, adminTab === 'forum_mod' && styles.activeAdminTabBtn]}
+              onPress={() => {
+                setAdminTab('forum_mod');
+                fetchForumPosts();
+              }}
+            >
+              <Text style={[styles.adminTabBtnText, adminTab === 'forum_mod' && styles.activeAdminTabText]}>
+                💬 Forum Denetimi
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.adminTabBtn, adminTab === 'events_mod' && styles.activeAdminTabBtn]}
+              onPress={() => {
+                setAdminTab('events_mod');
+                fetchEvents();
+              }}
+            >
+              <Text style={[styles.adminTabBtnText, adminTab === 'events_mod' && styles.activeAdminTabText]}>
+                📅 Sahne & Etkinlik Takvimi
               </Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.adminTabContent}>
-            {adminTab === 'corrections' ? (
+            {/* 1. DÜZELTME ONAY HAVUZU */}
+            {adminTab === 'corrections' && (
               <View style={styles.correctionsList}>
                 {loadingCorrections ? (
                   <ActivityIndicator color="#8b5cf6" style={{ marginTop: 30 }} />
@@ -677,7 +758,10 @@ export default function MorpheusWebPortal() {
                   ))
                 )}
               </View>
-            ) : adminTab === 'add_song' ? (
+            )}
+
+            {/* 2. YENİ ŞARKI EKLEME */}
+            {adminTab === 'add_song' && (
               <View style={styles.addSongForm}>
                 <View style={styles.formRow}>
                   <View style={{ flex: 1 }}>
@@ -719,8 +803,10 @@ export default function MorpheusWebPortal() {
                   <Text style={styles.saveSongBtnText}>{savingNewSong ? 'Kaydediliyor...' : '💾 Parçayı Morpheus Kütüphanesine Kaydet'}</Text>
                 </TouchableOpacity>
               </View>
-            ) : (
-              /* KULLANICI YÖNETİMİ TABLOSU */
+            )}
+
+            {/* 3. KULLANICI YÖNETİMİ */}
+            {adminTab === 'users' && (
               <View style={styles.usersTableWrapper}>
                 {loadingProfiles ? (
                   <ActivityIndicator color="#8b5cf6" style={{ marginTop: 30 }} />
@@ -766,6 +852,86 @@ export default function MorpheusWebPortal() {
                             <Text style={styles.roleMiniBtnTextAdmin}>ADMIN</Text>
                           </TouchableOpacity>
                         </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* 4. FORUM DENETİMİ */}
+            {adminTab === 'forum_mod' && (
+              <View style={{ maxWidth: 850, gap: 10 }}>
+                {loadingForum ? (
+                  <ActivityIndicator color="#8b5cf6" style={{ marginTop: 20 }} />
+                ) : forumPosts.length === 0 ? (
+                  <View style={styles.emptyAdminBox}>
+                    <Text style={styles.emptyAdminText}>Henüz forum iletisi bulunmuyor.</Text>
+                  </View>
+                ) : (
+                  forumPosts.map((post) => (
+                    <View key={post.id} style={styles.tableCard}>
+                      <View style={{ padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
+                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 13 }}>{post.title || post.content?.slice(0, 50)}</Text>
+                          <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>{post.content}</Text>
+                          <Text style={{ color: '#64748b', fontSize: 10, marginTop: 6 }}>Yazar: {post.author_email || 'Kullanıcı'} • {post.category || 'Genel'}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={{ backgroundColor: '#ef444420', borderWidth: 1, borderColor: '#ef444460', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 }}
+                          onPress={() => handleDeleteForumPost(post.id)}
+                        >
+                          <Text style={{ color: '#f87171', fontSize: 10, fontWeight: '700' }}>Sil</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+
+            {/* 5. SAHNE & ETKİNLİK TAKVİMİ */}
+            {adminTab === 'events_mod' && (
+              <View style={{ maxWidth: 850, gap: 16 }}>
+                <View style={styles.addSongForm}>
+                  <Text style={{ color: '#f8fafc', fontWeight: '800', fontSize: 13, marginBottom: 4 }}>Yeni Etkinlik Ekle</Text>
+                  <View style={styles.formRow}>
+                    <View style={{ flex: 2 }}>
+                      <Text style={styles.formLabel}>Etkinlik / Konser Adı:</Text>
+                      <TextInput style={styles.formInput} value={eventTitle} onChangeText={setEventTitle} placeholder="Örn: Morpheus Jam Session #4" placeholderTextColor="#64748b" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.formLabel}>Şehir:</Text>
+                      <TextInput style={styles.formInput} value={eventCity} onChangeText={setEventCity} placeholder="İstanbul, Bursa..." placeholderTextColor="#64748b" />
+                    </View>
+                  </View>
+                  <View style={styles.formRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.formLabel}>Tarih & Saat:</Text>
+                      <TextInput style={styles.formInput} value={eventDate} onChangeText={setEventDate} placeholder="25 Ekim 2026 - 21:00" placeholderTextColor="#64748b" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.formLabel}>Mekan / Sahne:</Text>
+                      <TextInput style={styles.formInput} value={eventVenue} onChangeText={setEventVenue} placeholder="Dorock XL, Jolly Joker..." placeholderTextColor="#64748b" />
+                    </View>
+                  </View>
+                  <TouchableOpacity style={styles.saveSongBtn} onPress={handleSaveEvent} disabled={savingEvent}>
+                    <Text style={styles.saveSongBtnText}>{savingEvent ? 'Kaydediliyor...' : '📅 Etkinliği Takvime Ekle'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {eventsList.length > 0 && (
+                  <View style={styles.tableCard}>
+                    <View style={styles.tableHeaderRow}>
+                      <Text style={[styles.thText, { flex: 2 }]}>Etkinlik</Text>
+                      <Text style={[styles.thText, { flex: 1 }]}>Şehir</Text>
+                      <Text style={[styles.thText, { flex: 1 }]}>Tarih</Text>
+                    </View>
+                    {eventsList.map((ev) => (
+                      <View key={ev.id} style={styles.tableBodyRow}>
+                        <Text style={[styles.tdTextEmail, { flex: 2 }]}>{ev.title}</Text>
+                        <Text style={[styles.tdTextSub, { flex: 1 }]}>{ev.city} ({ev.venue})</Text>
+                        <Text style={[styles.tdBadge, { flex: 1 }]}>{ev.event_date}</Text>
                       </View>
                     ))}
                   </View>
@@ -991,7 +1157,7 @@ export default function MorpheusWebPortal() {
                     </TouchableOpacity>
                   </View>
 
-                  {/* AUTO SCROLL (OTOMATİK KAYDIRMA) SAHNE ŞERİDİ */}
+                  {/* AUTO SCROLL SAHNE ŞERİDİ */}
                   <View style={styles.autoScrollControls}>
                     <TouchableOpacity
                       style={[styles.scrollToggleBtn, isScrolling && styles.scrollToggleBtnActive]}
@@ -1016,7 +1182,7 @@ export default function MorpheusWebPortal() {
                     </View>
                   </View>
 
-                  {/* Başlık & İnteraktif Yıldız Puanlama */}
+                  {/* Başlık & Canlı Yıldız Puanlama */}
                   <View style={styles.songHeaderBox}>
                     <View style={styles.titleRow}>
                       <Text style={styles.songMainTitle}>{selectedSong.title}</Text>
@@ -1026,7 +1192,6 @@ export default function MorpheusWebPortal() {
                         </Text>
                       </View>
                       
-                      {/* Canlı Yıldız Puanlama ve Sayaçlar */}
                       <View style={styles.statsRow}>
                         <View style={styles.starRatingBox}>
                           <Text style={styles.ratingScoreText}>⭐ {selectedSong.rating || '5.0'}</Text>
@@ -1192,7 +1357,6 @@ export default function MorpheusWebPortal() {
                       <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
                     </TouchableOpacity>
                     
-                    {/* REPERTUVAR LİSTELERİ MODALI */}
                     <TouchableOpacity
                       style={[styles.memberLinkBtn, { backgroundColor: '#0284c725', borderColor: '#0284c7', borderWidth: 1 }]}
                       onPress={() => setPlaylistModalVisible(true)}
@@ -1624,10 +1788,10 @@ const styles = StyleSheet.create({
   adminMainTitle: { color: '#f8fafc', fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
   adminStatsBox: { flexDirection: 'row', gap: 10 },
   adminStatChip: { backgroundColor: '#8b5cf620', color: '#c084fc', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, fontSize: 11, fontWeight: '700', borderWidth: 1, borderColor: '#8b5cf640' },
-  adminTabSelector: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  adminTabBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#1e293b' },
+  adminTabSelector: { flexDirection: 'row', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
+  adminTabBtn: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 6, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#1e293b' },
   activeAdminTabBtn: { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' },
-  adminTabBtnText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
+  adminTabBtnText: { color: '#94a3b8', fontSize: 11, fontWeight: '700' },
   activeAdminTabText: { color: '#ffffff' },
   adminTabContent: { flex: 1 },
   emptyAdminBox: { padding: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#1e293b' },
@@ -1724,7 +1888,7 @@ const styles = StyleSheet.create({
   alphaCharText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
   activeAlphaCharText: { color: '#ffffff' },
 
-  // 3 KOLONLU GÖVDE
+  // 3 KOLONLU GÖVDE: 2 KAT DİKEY YÜKSEKLİK
   mainGrid: { flexDirection: 'row', minHeight: 1100, height: 1100 },
   leftCol: { 
     width: 280, 
