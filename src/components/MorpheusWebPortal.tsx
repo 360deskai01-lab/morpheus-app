@@ -67,13 +67,13 @@ const BASS_CHORD_FRETS: { [key: string]: number[] } = {
   'Bm': [-1, 2, -1, 4],
 };
 
-// Akor satırı mı söz satırı mı tespit eden ayrıştırıcı motor
+// Akor satırı ayrıştırıcı
 const isChordLine = (line: string): boolean => {
   const trimmed = line.trim();
   if (!trimmed) return false;
   const tokens = trimmed.split(/\s+/);
   const chordRegex = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus)?[0-9]?(?:[#b][0-9]+)?(?:\/[A-G][b#]?)?$/;
-  const matchCount = tokens.filter((t) => chordRegex.test(t)).length;
+  const matchCount = tokens.filter((t: string) => chordRegex.test(t)).length;
   return matchCount / tokens.length >= 0.5;
 };
 
@@ -84,7 +84,7 @@ export default function MorpheusWebPortal() {
   const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
 
-  // Görünüm Modu: 'portal' veya 'admin'
+  // Görünüm Modu
   const [currentView, setCurrentView] = useState<'portal' | 'admin'>('portal');
 
   // Filtreler
@@ -96,41 +96,41 @@ export default function MorpheusWebPortal() {
   const [selectedLetter, setSelectedLetter] = useState<string>('Tümü');
   const [viewMode, setViewMode] = useState<'songs' | 'lists'>('songs');
 
-  // Dropdown Açık/Kapalı State'leri
+  // Dropdown State'leri
   const [showGenreDropdown, setShowGenreDropdown] = useState(false);
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);
 
-  // Transpoze, Font ve Enstrüman Tabı
+  // Transpoze, Font ve Enstrüman
   const [semitoneShift, setSemitoneShift] = useState(0);
   const [fontSize, setFontSize] = useState(15);
   const [instrumentTab, setInstrumentTab] = useState<'gitar' | 'piyano' | 'bass'>('piyano');
 
-  // Auto-Scroll State'leri
+  // Auto-Scroll
   const [isScrolling, setIsScrolling] = useState(false);
   const [scrollSpeed, setScrollSpeed] = useState<number>(1);
   const scrollRef = useRef<ScrollView>(null);
   const scrollPosition = useRef(0);
 
-  // AI Aranje State'leri
+  // AI Aranje
   const [aiModalVisible, setAiModalVisible] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<ReharmonizeStyle>('jazz');
   const [aiResult, setAiResult] = useState<ReharmonizeResult | null>(null);
   const [activeArrangementContent, setActiveArrangementContent] = useState<string | null>(null);
 
-  // Puanlama State'leri
+  // Puanlama
   const [userVote, setUserVote] = useState<number | null>(null);
   const [submittingRating, setSubmittingRating] = useState(false);
 
-  // Repertuvar & Playlist State'leri
+  // Playlist
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
   const [addToListModalVisible, setAddToListModalVisible] = useState(false);
   const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
 
-  // Admin Dashboard State'leri
+  // Admin
   const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users' | 'forum_mod' | 'events_mod'>('corrections');
   const [pendingCorrections, setPendingCorrections] = useState<any[]>([]);
   const [allProfiles, setAllProfiles] = useState<any[]>([]);
@@ -185,7 +185,65 @@ export default function MorpheusWebPortal() {
     };
   }, []);
 
-  // Auto Scroll Döngüsü
+  // --- DINAMIK SEO, META ETİKETLERİ VE SCHEMA.ORG (JSON-LD) ENJEKSİYONU ---
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const pageTitle = selectedSong
+        ? `${selectedSong.title} - ${selectedSong.artist} Akorları (${selectedSong.original_key || 'Am'}) | Morpheus`
+        : 'Morpheus v3.6 Ultra | Akor, Tab ve Canlı Sahne Portalı';
+      const pageDesc = selectedSong
+        ? `${selectedSong.title} şarkısının en doğru akorları, piyano/gitar tabları ve Gemini AI aranjmanı. Orijinal ton: ${selectedSong.original_key || 'Am'}.`
+        : 'Türkiye’nin en gelişmiş akor, söz ve canlı sahne omurgası. Yapay zeka ile yeniden aranje etme desteği.';
+
+      document.title = pageTitle;
+
+      // Meta helper
+      const updateMetaTag = (nameOrProperty: string, content: string, isProperty = false) => {
+        const selector = isProperty ? `meta[property="${nameOrProperty}"]` : `meta[name="${nameOrProperty}"]`;
+        let element = document.querySelector(selector);
+        if (!element) {
+          element = document.createElement('meta');
+          element.setAttribute(isProperty ? 'property' : 'name', nameOrProperty);
+          document.head.appendChild(element);
+        }
+        element.setAttribute('content', content);
+      };
+
+      updateMetaTag('description', pageDesc);
+      updateMetaTag('og:title', pageTitle, true);
+      updateMetaTag('og:description', pageDesc, true);
+      updateMetaTag('og:type', 'music.song', true);
+
+      // JSON-LD MusicComposition Schema
+      if (selectedSong) {
+        let scriptTag = document.querySelector('#morpheus-schema-jsonld') as HTMLScriptElement | null;
+        if (!scriptTag) {
+          scriptTag = document.createElement('script');
+          scriptTag.id = 'morpheus-schema-jsonld';
+          scriptTag.type = 'application/ld+json';
+          document.head.appendChild(scriptTag);
+        }
+        scriptTag.text = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'MusicComposition',
+          name: selectedSong.title,
+          composer: {
+            '@type': 'Person',
+            name: selectedSong.artist
+          },
+          musicalKey: selectedSong.original_key || 'Am',
+          genre: selectedSong.genre || 'Rock',
+          aggregateRating: {
+            '@type': 'AggregateRating',
+            ratingValue: selectedSong.rating || 5.0,
+            reviewCount: selectedSong.votes_count || 1
+          }
+        });
+      }
+    }
+  }, [selectedSong]);
+
+  // Auto Scroll
   useEffect(() => {
     let interval: any = null;
     if (isScrolling) {
@@ -266,9 +324,7 @@ export default function MorpheusWebPortal() {
         .select('*')
         .eq('user_id', userId)
         .order('id', { ascending: false });
-      if (data) {
-        setPlaylists(data);
-      }
+      if (data) setPlaylists(data);
     } catch {}
   };
 
@@ -1326,7 +1382,7 @@ export default function MorpheusWebPortal() {
 
                   {/* Şarkı Sözleri ve Ayrıştırılmış Renkli Akorlar */}
                   <View style={styles.lyricsBox}>
-                    {transposedContent.split('\n').map((line, idx) => {
+                    {transposedContent.split('\n').map((line: string, idx: number) => {
                       const isChord = isChordLine(line);
                       return (
                         <Text
