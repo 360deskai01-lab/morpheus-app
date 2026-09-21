@@ -434,7 +434,7 @@ export default function MorpheusWebPortal() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.appContainer}>
       {/* 1. ÜST NAVİGASYON */}
       <View style={styles.topNav}>
         <View style={styles.topNavLeft}>
@@ -662,7 +662,7 @@ export default function MorpheusWebPortal() {
         </View>
       ) : (
         /* ================= NORMAL PORTAL SAHNE GÖRÜNÜMÜ ================= */
-        <ScrollView style={{ flex: 1 }}>
+        <View style={styles.portalBodyWrapper}>
           {/* 3. ARAMA, FİLTRE VE ALFABE */}
           <View style={styles.searchSection}>
             <View style={styles.searchInnerWrapper}>
@@ -794,9 +794,9 @@ export default function MorpheusWebPortal() {
             </View>
           </View>
 
-          {/* 4. 3 KOLONLU GÖVDE */}
+          {/* 4. 3 KOLONLU GÖVDE (SABİT YÜKSEKLİK & HER BİRİ KENDİ İÇİNDE KAYAR) */}
           <View style={styles.mainGrid}>
-            {/* SOL: Arama Listesi */}
+            {/* SOL: Arama Listesi (Inline Scroll) */}
             <View style={styles.leftCol}>
               <View style={styles.colHeader}>
                 <Text style={styles.colHeaderText}>{viewMode === 'lists' ? 'Hazır Repertuvarlar' : 'Akor Kütüphanesi'}</Text>
@@ -806,7 +806,7 @@ export default function MorpheusWebPortal() {
               {loading ? (
                 <ActivityIndicator color="#0284c7" style={{ marginTop: 40 }} />
               ) : (
-                <ScrollView style={styles.songList}>
+                <ScrollView style={styles.songListScroll} showsVerticalScrollIndicator={true}>
                   {filteredSongs.map((song) => {
                     const isSelected = selectedSong?.id === song.id;
                     return (
@@ -830,7 +830,7 @@ export default function MorpheusWebPortal() {
             {/* ORTA: Şarkı Sahnesi & Akor Tabları */}
             <View style={styles.centerCol}>
               {selectedSong ? (
-                <ScrollView ref={scrollRef} style={styles.songViewWrapper}>
+                <ScrollView ref={scrollRef} style={styles.songViewWrapper} showsVerticalScrollIndicator={true}>
                   {/* Üst İşlem Butonları */}
                   <View style={styles.actionHeaderRow}>
                     <TouchableOpacity
@@ -1035,72 +1035,74 @@ export default function MorpheusWebPortal() {
 
             {/* SAĞ: Kullanıcı Paneli & Reklamlar */}
             <View style={styles.rightCol}>
-              <View style={styles.memberPanel}>
-                <Text style={styles.memberPanelTitle}>KULLANICI PANELİ</Text>
-                <View style={styles.memberCard}>
-                  <Text style={styles.memberName}>{user ? user.email : 'Kayıtsız Ziyaretçi'}</Text>
-                  <Text style={styles.memberTier}>
-                    {user ? (isUserAdmin ? 'ADMIN' : (profile?.membership_tier?.toUpperCase() || 'BASIC')) : 'ZİYARETÇİ'}
-                  </Text>
-                </View>
+              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.memberPanel}>
+                  <Text style={styles.memberPanelTitle}>KULLANICI PANELİ</Text>
+                  <View style={styles.memberCard}>
+                    <Text style={styles.memberName}>{user ? user.email : 'Kayıtsız Ziyaretçi'}</Text>
+                    <Text style={styles.memberTier}>
+                      {user ? (isUserAdmin ? 'ADMIN' : (profile?.membership_tier?.toUpperCase() || 'BASIC')) : 'ZİYARETÇİ'}
+                    </Text>
+                  </View>
 
-                <View style={styles.memberLinks}>
-                  <TouchableOpacity style={styles.memberLinkBtn} onPress={handleOpenAuth}>
-                    <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.memberLinkBtn} onPress={() => setViewMode('lists')}>
-                    <Text style={styles.memberLinkText}>📁 Parça & Repertuvar Listelerim</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.memberLinkBtn} onPress={() => {
-                    if (isUserAdmin) {
-                      setAdminTab('add_song');
-                      setCurrentView('admin');
-                    } else {
-                      alert('Onaylı Parça Ekleme Formu kullanıcılar için hazırlanıyor.');
-                    }
-                  }}>
-                    <Text style={styles.memberLinkText}>➕ Yeni Parça Ekle</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Dahili Mesaj Kutusu')}>
-                    <Text style={styles.memberLinkText}>📩 Mesaj Kutusu</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Düzeltme önerileri listesi')}>
-                    <Text style={styles.memberLinkText}>📝 Verdiğim Düzeltmeler</Text>
-                  </TouchableOpacity>
-
-                  {/* MASTER ADMIN KONSOL BUTONU */}
-                  {isUserAdmin && (
-                    <TouchableOpacity
-                      style={[styles.memberLinkBtn, { backgroundColor: '#8b5cf6' }]}
-                      onPress={() => {
-                        fetchCorrections();
-                        fetchAllProfiles();
+                  <View style={styles.memberLinks}>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={handleOpenAuth}>
+                      <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => setViewMode('lists')}>
+                      <Text style={styles.memberLinkText}>📁 Parça & Repertuvar Listelerim</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => {
+                      if (isUserAdmin) {
+                        setAdminTab('add_song');
                         setCurrentView('admin');
-                      }}
-                    >
-                      <Text style={[styles.memberLinkText, { color: '#ffffff', fontWeight: '700' }]}>⚙️ Master Admin Paneli</Text>
+                      } else {
+                        alert('Onaylı Parça Ekleme Formu kullanıcılar için hazırlanıyor.');
+                      }
+                    }}>
+                      <Text style={styles.memberLinkText}>➕ Yeni Parça Ekle</Text>
                     </TouchableOpacity>
-                  )}
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Dahili Mesaj Kutusu')}>
+                      <Text style={styles.memberLinkText}>📩 Mesaj Kutusu</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Düzeltme önerileri listesi')}>
+                      <Text style={styles.memberLinkText}>📝 Verdiğim Düzeltmeler</Text>
+                    </TouchableOpacity>
 
-                  {user && (
-                    <TouchableOpacity style={[styles.memberLinkBtn, styles.panelLogoutBtn]} onPress={handleLogout}>
-                      <Text style={styles.panelLogoutText}>🚪 Güvenli Çıkış Yap</Text>
-                    </TouchableOpacity>
-                  )}
+                    {/* MASTER ADMIN KONSOL BUTONU */}
+                    {isUserAdmin && (
+                      <TouchableOpacity
+                        style={[styles.memberLinkBtn, { backgroundColor: '#8b5cf6' }]}
+                        onPress={() => {
+                          fetchCorrections();
+                          fetchAllProfiles();
+                          setCurrentView('admin');
+                        }}
+                      >
+                        <Text style={[styles.memberLinkText, { color: '#ffffff', fontWeight: '700' }]}>⚙️ Master Admin Paneli</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {user && (
+                      <TouchableOpacity style={[styles.memberLinkBtn, styles.panelLogoutBtn]} onPress={handleLogout}>
+                        <Text style={styles.panelLogoutText}>🚪 Güvenli Çıkış Yap</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-              </View>
 
-              <View style={styles.advBlock}>
-                <Text style={styles.advBlockTitle}>SPONSOR ALANI 1 (300x250)</Text>
-              </View>
+                <View style={styles.advBlock}>
+                  <Text style={styles.advBlockTitle}>SPONSOR ALANI 1 (300x250)</Text>
+                </View>
 
-              <View style={styles.advBlock}>
-                <Text style={styles.advBlockTitle}>SPONSOR ALANI 2 (300x250)</Text>
-              </View>
+                <View style={styles.advBlock}>
+                  <Text style={styles.advBlockTitle}>SPONSOR ALANI 2 (300x250)</Text>
+                </View>
+              </ScrollView>
             </View>
           </View>
 
-          {/* 5. 4 KOLONLU ZENGİN KURUMSAL FOOTER */}
+          {/* 5. 4 KOLONLU ZENGİN KURUMSAL FOOTER (SABİT ALT PANEL) */}
           <View style={styles.richFooter}>
             <View style={styles.footerInner}>
               <View style={styles.footerCol}>
@@ -1145,7 +1147,7 @@ export default function MorpheusWebPortal() {
               </Text>
             </View>
           </View>
-        </ScrollView>
+        </View>
       )}
 
       {/* AI ARANJE ET MODALI */}
@@ -1320,7 +1322,7 @@ export default function MorpheusWebPortal() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#090d16' },
+  appContainer: { flex: 1, backgroundColor: '#090d16', height: '100vh', overflow: 'hidden' as any },
   topNav: {
     height: 52,
     backgroundColor: '#0f172a',
@@ -1351,7 +1353,7 @@ const styles = StyleSheet.create({
   userBadge: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
   logoutBtn: { backgroundColor: '#ef444420', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: '#ef444450' },
   logoutBtnText: { color: '#f87171', fontSize: 10, fontWeight: '700' },
-  advBanner: { height: 42, backgroundColor: '#0284c710', justifyContent: 'center', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#0284c725' },
+  advBanner: { height: 40, backgroundColor: '#0284c710', justifyContent: 'center', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#0284c725' },
   advBannerText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
   
   // ADMIN DASHBOARD STİLLERİ
@@ -1407,10 +1409,13 @@ const styles = StyleSheet.create({
   roleMiniBtnText: { color: '#94a3b8', fontSize: 9, fontWeight: '700' },
   roleMiniBtnTextAdmin: { color: '#ffffff', fontSize: 9, fontWeight: '700' },
 
+  // PORTAL GÖVDE DÜZENİ
+  portalBodyWrapper: { flex: 1, display: 'flex' as any, flexDirection: 'column' },
+
   // STANDART ARAMA VE FİLTRELEME
   searchSection: { 
     backgroundColor: '#0d1322', 
-    paddingVertical: 14, 
+    paddingVertical: 12, 
     paddingHorizontal: 16, 
     borderBottomWidth: 1, 
     borderBottomColor: '#1e293b', 
@@ -1421,59 +1426,61 @@ const styles = StyleSheet.create({
   searchInnerWrapper: { width: '100%', maxWidth: 960, alignItems: 'center' },
   searchInput: { 
     backgroundColor: '#1e293b', 
-    height: 40, 
+    height: 38, 
     borderRadius: 8, 
     paddingHorizontal: 14, 
     color: '#f8fafc', 
     fontSize: 13, 
-    marginBottom: 10, 
+    marginBottom: 8, 
     width: '100%', 
     maxWidth: 680, 
     borderWidth: 1, 
     borderColor: '#334155' 
   },
-  filterBar: { marginBottom: 10, zIndex: 40, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  filterBar: { marginBottom: 8, zIndex: 40, width: '100%', alignItems: 'center', justifyContent: 'center' },
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 6 },
-  filterChip: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4 },
+  filterChip: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4 },
   activeChip: { backgroundColor: '#0284c7' },
   filterChipText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
   activeChipText: { color: '#ffffff' },
-  filterChipSpecial: { backgroundColor: '#8b5cf620', borderWidth: 1, borderColor: '#8b5cf6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4 },
+  filterChipSpecial: { backgroundColor: '#8b5cf620', borderWidth: 1, borderColor: '#8b5cf6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4 },
   activeChipSpecial: { backgroundColor: '#8b5cf6' },
   filterChipTextSpecial: { color: '#c084fc', fontSize: 11, fontWeight: '700' },
 
   dropdownContainer: { position: 'relative' },
-  dropdownBtn: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
+  dropdownBtn: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
   activeDropdownBtn: { borderColor: '#38bdf8', backgroundColor: '#0284c725' },
   dropdownBtnText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
   activeDropdownBtnText: { color: '#38bdf8' },
-  dropdownMenu: { position: 'absolute', top: 30, left: 0, width: 140, backgroundColor: '#0f172a', borderRadius: 6, borderWidth: 1, borderColor: '#334155', zIndex: 100, elevation: 10 },
+  dropdownMenu: { position: 'absolute', top: 28, left: 0, width: 140, backgroundColor: '#0f172a', borderRadius: 6, borderWidth: 1, borderColor: '#334155', zIndex: 100, elevation: 10 },
   dropdownItem: { paddingHorizontal: 10, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   activeDropdownItem: { backgroundColor: '#0284c730' },
   dropdownItemText: { color: '#94a3b8', fontSize: 11 },
   activeDropdownItemText: { color: '#38bdf8', fontWeight: '700' },
 
   alphaScrollView: { width: '100%', maxWidth: 820 },
-  alphaScrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: 5 },
-  alphaChar: { width: 24, height: 24, justifyContent: 'center', alignItems: 'center', borderRadius: 4, backgroundColor: '#151e33' },
+  alphaScrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: 4 },
+  alphaChar: { width: 22, height: 22, justifyContent: 'center', alignItems: 'center', borderRadius: 4, backgroundColor: '#151e33' },
   activeAlphaChar: { backgroundColor: '#0284c7' },
   alphaCharText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
   activeAlphaCharText: { color: '#ffffff' },
 
-  mainGrid: { flexDirection: 'row', minHeight: 700 },
-  leftCol: { width: 280, borderRightWidth: 1, borderRightColor: '#1e293b', backgroundColor: '#090d16' },
+  // 3 KOLONLU GÖVDE: SABİT KALIR VE İÇİNDEKİLER KAYAR
+  mainGrid: { flex: 1, flexDirection: 'row', overflow: 'hidden' as any },
+  leftCol: { width: 280, borderRightWidth: 1, borderRightColor: '#1e293b', backgroundColor: '#090d16', display: 'flex' as any, flexDirection: 'column' },
   colHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   colHeaderText: { color: '#f8fafc', fontWeight: '700', fontSize: 12 },
   counterText: { color: '#38bdf8', fontSize: 11 },
-  songList: { flex: 1 },
+  songListScroll: { flex: 1 },
   songCard: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, borderBottomColor: '#131c2e', alignItems: 'center' },
   songCardSelected: { backgroundColor: '#1e293b' },
   songCardTitle: { color: '#cbd5e1', fontSize: 12, fontWeight: '600' },
   songCardArtist: { color: '#64748b', fontSize: 10, marginTop: 2 },
   keyTag: { color: '#38bdf8', fontWeight: '700', fontSize: 11 },
   textWhite: { color: '#ffffff' },
-  centerCol: { flex: 1, backgroundColor: '#070a12' },
-  songViewWrapper: { padding: 16 },
+  
+  centerCol: { flex: 1, backgroundColor: '#070a12', display: 'flex' as any },
+  songViewWrapper: { flex: 1, padding: 16 },
   actionHeaderRow: { flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' },
   actionBtnAI: { backgroundColor: '#8b5cf6', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
   revertBtn: { backgroundColor: '#334155', paddingVertical: 7, paddingHorizontal: 12, borderRadius: 5 },
@@ -1554,11 +1561,12 @@ const styles = StyleSheet.create({
   transOffset: { color: '#94a3b8', fontSize: 11, marginLeft: 4 },
   lyricsBox: { backgroundColor: '#05080e', padding: 16, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', marginVertical: 8 },
   lyricsText: { color: '#f8fafc', fontFamily: 'monospace', lineHeight: 22 },
-  correctionBtn: { marginTop: 12, padding: 10, borderRadius: 6, backgroundColor: '#1e293b', alignItems: 'center' },
+  correctionBtn: { marginTop: 12, marginBottom: 24, padding: 10, borderRadius: 6, backgroundColor: '#1e293b', alignItems: 'center' },
   correctionBtnText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
   emptyCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyCenterText: { color: '#475569', fontSize: 13 },
-  rightCol: { width: 300, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b', gap: 12 },
+  
+  rightCol: { width: 300, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b' },
   memberPanel: { backgroundColor: '#0f172a', padding: 12, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b' },
   memberPanelTitle: { color: '#38bdf8', fontSize: 11, fontWeight: '700', marginBottom: 8 },
   memberCard: { marginBottom: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
@@ -1569,21 +1577,21 @@ const styles = StyleSheet.create({
   memberLinkText: { color: '#cbd5e1', fontSize: 10 },
   panelLogoutBtn: { backgroundColor: '#ef444415', borderWidth: 1, borderColor: '#ef444440', marginTop: 6 },
   panelLogoutText: { color: '#f87171', fontSize: 10, fontWeight: '700', textAlign: 'center' },
-  advBlock: { height: 180, backgroundColor: '#0d1322', borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed' },
+  advBlock: { height: 160, marginTop: 12, backgroundColor: '#0d1322', borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed' },
   advBlockTitle: { color: '#475569', fontSize: 10, fontWeight: '600' },
 
-  // 4 KOLONLU ZENGİN FOOTER STİLLERİ
-  richFooter: { backgroundColor: '#060911', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 32 },
-  footerInner: { flexDirection: 'row', justifyContent: 'space-between', maxWidth: 1200, marginHorizontal: 'auto', paddingHorizontal: 20, width: '100%', gap: 24 },
+  // 4 KOLONLU FOOTER: SABİT TABAN
+  richFooter: { backgroundColor: '#060911', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 16 },
+  footerInner: { flexDirection: 'row', justifyContent: 'space-between', maxWidth: 1200, marginHorizontal: 'auto', paddingHorizontal: 20, width: '100%', gap: 20 },
   footerCol: { flex: 1 },
-  footerColTitle: { color: '#38bdf8', fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 12 },
-  footerLink: { color: '#94a3b8', fontSize: 11, marginBottom: 8 },
-  footerDesc: { color: '#64748b', fontSize: 11, lineHeight: 16, marginBottom: 12 },
+  footerColTitle: { color: '#38bdf8', fontSize: 11, fontWeight: '800', letterSpacing: 0.5, marginBottom: 8 },
+  footerLink: { color: '#94a3b8', fontSize: 10, marginBottom: 5 },
+  footerDesc: { color: '#64748b', fontSize: 10, lineHeight: 14, marginBottom: 8 },
   appBadgeRow: { flexDirection: 'row', gap: 6 },
-  appBadge: { backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
-  appBadgeText: { color: '#cbd5e1', fontSize: 10, fontWeight: '600' },
-  footerBottomBar: { marginTop: 32, borderTopWidth: 1, borderTopColor: '#0f172a', paddingVertical: 14, alignItems: 'center' },
-  footerCopyText: { color: '#475569', fontSize: 10, letterSpacing: 0.5 },
+  appBadge: { backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
+  appBadgeText: { color: '#cbd5e1', fontSize: 9, fontWeight: '600' },
+  footerBottomBar: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#0f172a', paddingVertical: 8, alignItems: 'center' },
+  footerCopyText: { color: '#475569', fontSize: 9, letterSpacing: 0.5 },
 
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: 500, backgroundColor: '#0f172a', borderRadius: 8, padding: 16, borderWidth: 1, borderColor: '#1e293b' },
