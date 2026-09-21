@@ -434,7 +434,7 @@ export default function MorpheusWebPortal() {
   };
 
   return (
-    <View style={styles.appContainer}>
+    <ScrollView style={styles.outerScroll} contentContainerStyle={styles.outerScrollContent}>
       {/* 1. ÜST NAVİGASYON */}
       <View style={styles.topNav}>
         <View style={styles.topNavLeft}>
@@ -794,9 +794,9 @@ export default function MorpheusWebPortal() {
             </View>
           </View>
 
-          {/* 4. 3 KOLONLU GÖVDE (SABİT YÜKSEKLİK & HER BİRİ KENDİ İÇİNDE KAYAR) */}
+          {/* 4. 3 KOLONLU GÖVDE: 2 KAT UZATILMIŞ DİKEY BOYUT VE İÇTEN KAYDIRMALI LİSTE */}
           <View style={styles.mainGrid}>
-            {/* SOL: Arama Listesi (Inline Scroll) */}
+            {/* SOL: Arama Listesi (2 Kat Uzatılmış ve Inline Scroll) */}
             <View style={styles.leftCol}>
               <View style={styles.colHeader}>
                 <Text style={styles.colHeaderText}>{viewMode === 'lists' ? 'Hazır Repertuvarlar' : 'Akor Kütüphanesi'}</Text>
@@ -1102,7 +1102,7 @@ export default function MorpheusWebPortal() {
             </View>
           </View>
 
-          {/* 5. 4 KOLONLU ZENGİN KURUMSAL FOOTER (SABİT ALT PANEL) */}
+          {/* 5. 4 KOLONLU ZENGİN KURUMSAL FOOTER */}
           <View style={styles.richFooter}>
             <View style={styles.footerInner}>
               <View style={styles.footerCol}>
@@ -1317,12 +1317,13 @@ export default function MorpheusWebPortal() {
           onClose={() => setActiveModal(null)}
         />
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  appContainer: { flex: 1, backgroundColor: '#090d16', height: '100vh', overflow: 'hidden' as any },
+  outerScroll: { flex: 1, backgroundColor: '#090d16' },
+  outerScrollContent: { flexGrow: 1 },
   topNav: {
     height: 52,
     backgroundColor: '#0f172a',
@@ -1410,7 +1411,7 @@ const styles = StyleSheet.create({
   roleMiniBtnTextAdmin: { color: '#ffffff', fontSize: 9, fontWeight: '700' },
 
   // PORTAL GÖVDE DÜZENİ
-  portalBodyWrapper: { flex: 1, display: 'flex' as any, flexDirection: 'column' },
+  portalBodyWrapper: { width: '100%' },
 
   // STANDART ARAMA VE FİLTRELEME
   searchSection: { 
@@ -1419,7 +1420,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, 
     borderBottomWidth: 1, 
     borderBottomColor: '#1e293b', 
-    zIndex: 50, 
     alignItems: 'center', 
     justifyContent: 'center' 
   },
@@ -1437,7 +1437,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, 
     borderColor: '#334155' 
   },
-  filterBar: { marginBottom: 8, zIndex: 40, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  filterBar: { marginBottom: 8, width: '100%', alignItems: 'center', justifyContent: 'center' },
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 6 },
   filterChip: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4 },
   activeChip: { backgroundColor: '#0284c7' },
@@ -1465,9 +1465,17 @@ const styles = StyleSheet.create({
   alphaCharText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
   activeAlphaCharText: { color: '#ffffff' },
 
-  // 3 KOLONLU GÖVDE: SABİT KALIR VE İÇİNDEKİLER KAYAR
-  mainGrid: { flex: 1, flexDirection: 'row', overflow: 'hidden' as any },
-  leftCol: { width: 280, borderRightWidth: 1, borderRightColor: '#1e293b', backgroundColor: '#090d16', display: 'flex' as any, flexDirection: 'column' },
+  // 3 KOLONLU GÖVDE: 2 KAT UZATILMIŞ DİKEY BOYUT (1100px)
+  mainGrid: { flexDirection: 'row', minHeight: 1100, height: 1100 },
+  leftCol: { 
+    width: 280, 
+    height: 1100,
+    borderRightWidth: 1, 
+    borderRightColor: '#1e293b', 
+    backgroundColor: '#090d16', 
+    display: 'flex' as any, 
+    flexDirection: 'column' 
+  },
   colHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   colHeaderText: { color: '#f8fafc', fontWeight: '700', fontSize: 12 },
   counterText: { color: '#38bdf8', fontSize: 11 },
@@ -1479,7 +1487,7 @@ const styles = StyleSheet.create({
   keyTag: { color: '#38bdf8', fontWeight: '700', fontSize: 11 },
   textWhite: { color: '#ffffff' },
   
-  centerCol: { flex: 1, backgroundColor: '#070a12', display: 'flex' as any },
+  centerCol: { flex: 1, height: 1100, backgroundColor: '#070a12', display: 'flex' as any },
   songViewWrapper: { flex: 1, padding: 16 },
   actionHeaderRow: { flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' },
   actionBtnAI: { backgroundColor: '#8b5cf6', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
@@ -1566,7 +1574,7 @@ const styles = StyleSheet.create({
   emptyCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyCenterText: { color: '#475569', fontSize: 13 },
   
-  rightCol: { width: 300, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b' },
+  rightCol: { width: 300, height: 1100, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b' },
   memberPanel: { backgroundColor: '#0f172a', padding: 12, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b' },
   memberPanelTitle: { color: '#38bdf8', fontSize: 11, fontWeight: '700', marginBottom: 8 },
   memberCard: { marginBottom: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
@@ -1580,18 +1588,18 @@ const styles = StyleSheet.create({
   advBlock: { height: 160, marginTop: 12, backgroundColor: '#0d1322', borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed' },
   advBlockTitle: { color: '#475569', fontSize: 10, fontWeight: '600' },
 
-  // 4 KOLONLU FOOTER: SABİT TABAN
-  richFooter: { backgroundColor: '#060911', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 16 },
+  // 4 KOLONLU FOOTER: EN ALTTA GENİŞ KURUMSAL ALAN
+  richFooter: { backgroundColor: '#060911', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 32, paddingBottom: 20 },
   footerInner: { flexDirection: 'row', justifyContent: 'space-between', maxWidth: 1200, marginHorizontal: 'auto', paddingHorizontal: 20, width: '100%', gap: 20 },
   footerCol: { flex: 1 },
-  footerColTitle: { color: '#38bdf8', fontSize: 11, fontWeight: '800', letterSpacing: 0.5, marginBottom: 8 },
-  footerLink: { color: '#94a3b8', fontSize: 10, marginBottom: 5 },
-  footerDesc: { color: '#64748b', fontSize: 10, lineHeight: 14, marginBottom: 8 },
+  footerColTitle: { color: '#38bdf8', fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 12 },
+  footerLink: { color: '#94a3b8', fontSize: 11, marginBottom: 8 },
+  footerDesc: { color: '#64748b', fontSize: 11, lineHeight: 16, marginBottom: 10 },
   appBadgeRow: { flexDirection: 'row', gap: 6 },
-  appBadge: { backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
-  appBadgeText: { color: '#cbd5e1', fontSize: 9, fontWeight: '600' },
-  footerBottomBar: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#0f172a', paddingVertical: 8, alignItems: 'center' },
-  footerCopyText: { color: '#475569', fontSize: 9, letterSpacing: 0.5 },
+  appBadge: { backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
+  appBadgeText: { color: '#cbd5e1', fontSize: 10, fontWeight: '600' },
+  footerBottomBar: { marginTop: 24, borderTopWidth: 1, borderTopColor: '#0f172a', paddingTop: 14, alignItems: 'center' },
+  footerCopyText: { color: '#475569', fontSize: 10, letterSpacing: 0.5 },
 
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: 500, backgroundColor: '#0f172a', borderRadius: 8, padding: 16, borderWidth: 1, borderColor: '#1e293b' },
