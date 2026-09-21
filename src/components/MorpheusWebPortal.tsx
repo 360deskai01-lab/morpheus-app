@@ -67,6 +67,16 @@ const BASS_CHORD_FRETS: { [key: string]: number[] } = {
   'Bm': [-1, 2, -1, 4],
 };
 
+// Akor satırı mı söz satırı mı tespit eden ayrıştırıcı motor
+const isChordLine = (line: string): boolean => {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  const tokens = trimmed.split(/\s+/);
+  const chordRegex = /^[A-G][b#]?(?:m|maj|min|dim|aug|sus)?[0-9]?(?:[#b][0-9]+)?(?:\/[A-G][b#]?)?$/;
+  const matchCount = tokens.filter((t) => chordRegex.test(t)).length;
+  return matchCount / tokens.length >= 0.5;
+};
+
 export default function MorpheusWebPortal() {
   const [songs, setSongs] = useState<any[]>([]);
   const [selectedSong, setSelectedSong] = useState<any | null>(null);
@@ -129,7 +139,7 @@ export default function MorpheusWebPortal() {
   const [loadingCorrections, setLoadingCorrections] = useState(false);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [loadingForum, setLoadingForum] = useState(false);
-  
+
   // Yeni Şarkı Formu
   const [newTitle, setNewTitle] = useState('');
   const [newArtist, setNewArtist] = useState('');
@@ -305,7 +315,7 @@ export default function MorpheusWebPortal() {
         .from('morfeus_songs')
         .update({ playlist_count: (selectedSong.playlist_count || 0) + 1 })
         .eq('id', selectedSong.id);
-      
+
       setSelectedSong({ ...selectedSong, playlist_count: (selectedSong.playlist_count || 0) + 1 });
       setAddToListModalVisible(false);
       alert(`"${selectedSong.title}" repertuvara eklendi!`);
@@ -343,7 +353,6 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  // --- ADMIN MODERASYON FONKSİYONLARI ---
   const fetchCorrections = async () => {
     setLoadingCorrections(true);
     const { data } = await supabase
@@ -1191,7 +1200,7 @@ export default function MorpheusWebPortal() {
                           {activeArrangementContent ? `AI Aranje (${aiResult?.style.toUpperCase()})` : 'Standart Akor'}
                         </Text>
                       </View>
-                      
+
                       <View style={styles.statsRow}>
                         <View style={styles.starRatingBox}>
                           <Text style={styles.ratingScoreText}>⭐ {selectedSong.rating || '5.0'}</Text>
@@ -1315,11 +1324,23 @@ export default function MorpheusWebPortal() {
                     </View>
                   </View>
 
-                  {/* Şarkı Sözleri ve Akorlar */}
+                  {/* Şarkı Sözleri ve Ayrıştırılmış Renkli Akorlar */}
                   <View style={styles.lyricsBox}>
-                    <Text style={[styles.lyricsText, { fontSize }]}>
-                      {transposedContent}
-                    </Text>
+                    {transposedContent.split('\n').map((line, idx) => {
+                      const isChord = isChordLine(line);
+                      return (
+                        <Text
+                          key={idx}
+                          style={[
+                            styles.lyricsText,
+                            { fontSize },
+                            isChord ? styles.chordLineText : styles.lyricLineText
+                          ]}
+                        >
+                          {line || ' '}
+                        </Text>
+                      );
+                    })}
                   </View>
 
                   {/* Düzeltme Önerisi */}
@@ -1356,7 +1377,7 @@ export default function MorpheusWebPortal() {
                     <TouchableOpacity style={styles.memberLinkBtn} onPress={handleOpenAuth}>
                       <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
                     </TouchableOpacity>
-                    
+
                     <TouchableOpacity
                       style={[styles.memberLinkBtn, { backgroundColor: '#0284c725', borderColor: '#0284c7', borderWidth: 1 }]}
                       onPress={() => setPlaylistModalVisible(true)}
@@ -1779,7 +1800,7 @@ const styles = StyleSheet.create({
   logoutBtnText: { color: '#f87171', fontSize: 10, fontWeight: '700' },
   advBanner: { height: 40, backgroundColor: '#0284c710', justifyContent: 'center', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#0284c725' },
   advBannerText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
-  
+
   // ADMIN DASHBOARD STİLLERİ
   adminDashboardWrapper: { flex: 1, backgroundColor: '#070a12', padding: 20 },
   adminTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b', marginBottom: 16 },
@@ -1888,7 +1909,7 @@ const styles = StyleSheet.create({
   alphaCharText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
   activeAlphaCharText: { color: '#ffffff' },
 
-  // 3 KOLONLU GÖVDE: 2 KAT DİKEY YÜKSEKLİK
+  // 3 KOLONLU GÖVDE
   mainGrid: { flexDirection: 'row', minHeight: 1100, height: 1100 },
   leftCol: { 
     width: 280, 
@@ -2001,8 +2022,13 @@ const styles = StyleSheet.create({
   transBtnZero: { backgroundColor: '#0284c7', width: 28, height: 28, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
   transBtnZeroText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
   transOffset: { color: '#94a3b8', fontSize: 11, marginLeft: 4 },
+
+  // AYRIŞTIRILMIŞ AKOR VE SÖZ STİLLERİ
   lyricsBox: { backgroundColor: '#05080e', padding: 16, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', marginVertical: 8 },
-  lyricsText: { color: '#f8fafc', fontFamily: 'monospace', lineHeight: 22 },
+  lyricsText: { fontFamily: 'monospace', lineHeight: 22 },
+  chordLineText: { color: '#38bdf8', fontWeight: '700', letterSpacing: 0.5 },
+  lyricLineText: { color: '#cbd5e1', fontWeight: '400' },
+
   correctionBtn: { marginTop: 12, marginBottom: 24, padding: 10, borderRadius: 6, backgroundColor: '#1e293b', alignItems: 'center' },
   correctionBtnText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
   emptyCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
