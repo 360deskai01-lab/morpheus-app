@@ -185,7 +185,7 @@ export default function MorpheusWebPortal() {
     };
   }, []);
 
-  // --- DINAMIK SEO, META ETİKETLERİ VE SCHEMA.ORG (JSON-LD) ENJEKSİYONU ---
+  // --- DINAMİK SEO, META ETİKETLERİ VE CORE WEB VITALS FONT OPTİMİZASYONU ---
   useEffect(() => {
     if (typeof document !== 'undefined') {
       const pageTitle = selectedSong
@@ -197,7 +197,19 @@ export default function MorpheusWebPortal() {
 
       document.title = pageTitle;
 
-      // Meta helper
+      let styleTag = document.querySelector('#morpheus-perf-styles') as HTMLStyleElement | null;
+      if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'morpheus-perf-styles';
+        styleTag.innerHTML = `
+          @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+          * { font-display: swap; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+          code, pre, .monospace-font { font-family: 'JetBrains Mono', monospace !important; }
+        `;
+        document.head.appendChild(styleTag);
+      }
+
       const updateMetaTag = (nameOrProperty: string, content: string, isProperty = false) => {
         const selector = isProperty ? `meta[property="${nameOrProperty}"]` : `meta[name="${nameOrProperty}"]`;
         let element = document.querySelector(selector);
@@ -214,7 +226,6 @@ export default function MorpheusWebPortal() {
       updateMetaTag('og:description', pageDesc, true);
       updateMetaTag('og:type', 'music.song', true);
 
-      // JSON-LD MusicComposition Schema
       if (selectedSong) {
         let scriptTag = document.querySelector('#morpheus-schema-jsonld') as HTMLScriptElement | null;
         if (!scriptTag) {
