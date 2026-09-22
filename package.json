@@ -29,7 +29,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "sitemap": "tsx scripts/generateSitemap.ts"
+    "sitemap": "tsx scripts/generateSitemap.ts",
+    "sanitize-library": "tsx scripts/sanitizeLibrary.ts"
   },
   "private": true
 }
