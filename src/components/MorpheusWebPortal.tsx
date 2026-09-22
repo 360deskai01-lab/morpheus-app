@@ -10,7 +10,7 @@ import {
   Modal
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { transposeContent } from '../utils/chordEngine';
+import { sanitizeSongContent, transposeContent } from '../utils/chordEngine';
 import { getPianoKeysForChord } from '../utils/pianoDiagrams';
 import { PianoView, FretboardView } from './PianoView';
 import { reharmonizeSong, ReharmonizeStyle, ReharmonizeResult } from '../services/aiArrangerService';
@@ -673,7 +673,7 @@ export default function MorpheusWebPortal() {
   const handleApproveCorrection = async (item: any) => {
     await supabase
       .from('morfeus_songs')
-      .update({ content: item.suggested_content })
+      .update({ content: sanitizeSongContent(item.suggested_content || '') })
       .eq('id', item.song_id);
 
     await supabase.from('song_corrections').delete().eq('id', item.id);
@@ -700,7 +700,7 @@ export default function MorpheusWebPortal() {
       original_key: newKey,
       genre: newGenre,
       release_year: newYear,
-      content: newContent,
+      content: sanitizeSongContent(newContent),
       views: 0,
       rating: 5.0
     });
@@ -799,7 +799,7 @@ export default function MorpheusWebPortal() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [songs]);
 
-  const currentContent = activeArrangementContent || selectedSong?.content || '';
+  const currentContent = sanitizeSongContent(activeArrangementContent || selectedSong?.content || '');
 
   const transposedContent = useMemo(() => {
     if (!currentContent) return '';
@@ -870,7 +870,7 @@ export default function MorpheusWebPortal() {
 
   const applyAiArrangement = () => {
     if (!aiResult) return;
-    setActiveArrangementContent(aiResult.content);
+    setActiveArrangementContent(sanitizeSongContent(aiResult.content));
     setAiModalVisible(false);
   };
 
@@ -885,7 +885,7 @@ export default function MorpheusWebPortal() {
     const { error } = await supabase.from('song_corrections').insert({
       song_id: selectedSong.id,
       user_id: user?.id || null,
-      suggested_content: correctionText,
+      suggested_content: sanitizeSongContent(correctionText),
       notes: correctionNote
     });
     setSavingCorrection(false);
@@ -1092,7 +1092,7 @@ export default function MorpheusWebPortal() {
 
                 <Text style={styles.formLabel}>Şarkı Sözü ve Akor Formatı (Monospace):</Text>
                 <TextInput
-                  style={[styles.formInput, { height: 240, fontFamily: 'monospace', textAlignVertical: 'top' }]}
+                  style={[styles.formInput, { height: 240, fontFamily: 'monospace', textAlignVertical: 'top' }, { whiteSpace: 'pre' } as object]}
                   multiline
                   value={newContent}
                   onChangeText={setNewContent}
@@ -1664,7 +1664,7 @@ export default function MorpheusWebPortal() {
                   <TouchableOpacity
                     style={styles.correctionBtn}
                     onPress={() => {
-                      setCorrectionText(selectedSong.content || '');
+                      setCorrectionText(sanitizeSongContent(selectedSong.content || ''));
                       setCorrectionModalVisible(true);
                     }}
                   >
@@ -2382,8 +2382,8 @@ const styles = StyleSheet.create({
 
   // AYRIŞTIRILMIŞ AKOR VE SÖZ STİLLERİ
   lyricsBox: { backgroundColor: '#05080e', padding: 16, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', marginVertical: 8 },
-  lyricsText: { fontFamily: 'monospace', lineHeight: 22 },
-  chordLineText: { color: '#38bdf8', fontWeight: '700', letterSpacing: 0.5 },
+  lyricsText: { fontFamily: 'monospace', lineHeight: 22, ...({ whiteSpace: 'pre' } as object) },
+  chordLineText: { color: '#38bdf8', fontWeight: '700' },
   lyricLineText: { color: '#cbd5e1', fontWeight: '400' },
 
   correctionBtn: { marginTop: 12, marginBottom: 24, padding: 10, borderRadius: 6, backgroundColor: '#1e293b', alignItems: 'center' },
@@ -2462,7 +2462,7 @@ const styles = StyleSheet.create({
   aiPreviewBox: { height: 180, backgroundColor: '#090d16', borderRadius: 6, padding: 10, borderWidth: 1, borderColor: '#1e293b' },
   aiPreviewContent: { color: '#f8fafc', fontFamily: 'monospace', fontSize: 11, lineHeight: 18 },
 
-  modalTextInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontFamily: 'monospace', fontSize: 12, height: 140, textAlignVertical: 'top', borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
+  modalTextInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontFamily: 'monospace', fontSize: 12, height: 140, textAlignVertical: 'top', borderWidth: 1, borderColor: '#1e293b', marginBottom: 10, ...({ whiteSpace: 'pre' } as object) },
   modalNoteInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontSize: 12, height: 36, borderWidth: 1, borderColor: '#1e293b', marginBottom: 16 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
   modalCancelBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 5, backgroundColor: '#1e293b' },

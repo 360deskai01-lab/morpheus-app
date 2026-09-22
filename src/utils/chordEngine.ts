@@ -127,3 +127,59 @@ export function transposeContent(content: string, semitones: number, preferFlats
 export function stripChords(content: string): string {
   return content.replace(BRACKETED_CHORD_REGEX, '').replace(/^[ \t]+/gm, '');
 }
+
+const TAB_STOP = 4;
+const GLUED_CHORD_PAIR = new RegExp(`(${CHORD_REGEX_STR})(?=${CHORD_REGEX_STR})`, 'g');
+const GLUED_BRACKET_CHORD = /\](?=\[)/g;
+
+function expandTabs(line: string, tabStop = TAB_STOP): string {
+  let out = '';
+  for (const ch of line) {
+    if (ch === '\t') {
+      const spaces = tabStop - (out.length % tabStop);
+      out += ' '.repeat(spaces);
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function separateGluedChords(line: string): string {
+  let next = line.replace(GLUED_BRACKET_CHORD, '] ');
+  let prev = '';
+  while (prev !== next) {
+    prev = next;
+    next = prev.replace(GLUED_CHORD_PAIR, '$1 ');
+  }
+  return next;
+}
+
+function isChordOnlyLine(line: string): boolean {
+  const compact = line.trim();
+  if (!compact) return false;
+  const onlyChords = new RegExp(`^(?:\\[?${CHORD_REGEX_STR}\\]?\\s*)+$`);
+  return onlyChords.test(compact) || onlyChords.test(separateGluedChords(compact));
+}
+
+/**
+ * Dış sitelerden yapıştırılan akor metnini sahne formatına çeker:
+ * tab karakterlerini boşluğa açar, yapışık akorları (AmG, [Am][G]) ayırır.
+ */
+export function sanitizeSongContent(content: string): string {
+  if (!content) return '';
+
+  return content
+    .replace(/\uFEFF/g, '')
+    .replace(/[\u200B-\u200D\u2060]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => {
+      const expanded = expandTabs(line);
+      return isChordOnlyLine(expanded) ? separateGluedChords(expanded) : expanded;
+    })
+    .join('\n')
+    .replace(/[ \t]+$/gm, '');
+}
