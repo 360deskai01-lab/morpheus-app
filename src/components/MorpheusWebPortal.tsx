@@ -23,9 +23,22 @@ import ForumModal from './ForumModal';
 import StoreModal from './StoreModal';
 import SubscriptionModal from './SubscriptionModal';
 import TunerModal from './TunerModal';
+import WebConnectModal from './WebConnectModal';
+import InfoModal from './InfoModal';
+import ProfileModal from './ProfileModal';
 
 // Sabitler
 import { GENRES, YEARS, ALPHABET, ALL_KEYS } from '../constants/filters';
+import {
+  findSongBySlug,
+  infoPath,
+  parsePathname,
+  pushPortalUrl,
+  replacePortalUrl,
+  songCanonicalUrl,
+  songPath,
+  type InfoPageId,
+} from '../utils/portalRouting';
 
 const GUITAR_CHORD_FRETS: { [key: string]: number[] } = {
   'Am': [-1, 0, 2, 2, 1, 0],
@@ -129,6 +142,9 @@ export default function MorpheusWebPortal() {
   const [addToListModalVisible, setAddToListModalVisible] = useState(false);
   const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+  const [activePlaylist, setActivePlaylist] = useState<any | null>(null);
+  const [playlistSongs, setPlaylistSongs] = useState<any[]>([]);
+  const [loadingPlaylistSongs, setLoadingPlaylistSongs] = useState(false);
 
   // Admin
   const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users' | 'forum_mod' | 'events_mod'>('corrections');
@@ -162,6 +178,8 @@ export default function MorpheusWebPortal() {
   const [correctionText, setCorrectionText] = useState('');
   const [correctionNote, setCorrectionNote] = useState('');
   const [savingCorrection, setSavingCorrection] = useState(false);
+  const [infoPageId, setInfoPageId] = useState<InfoPageId | null>(null);
+  const skipUrlWrite = useRef(false);
 
   useEffect(() => {
     fetchSession();
@@ -177,6 +195,7 @@ export default function MorpheusWebPortal() {
         setProfile(null);
         setPlaylists([]);
         setCurrentView('portal');
+        exitPlaylistMode();
       }
     });
 
@@ -224,7 +243,17 @@ export default function MorpheusWebPortal() {
       updateMetaTag('description', pageDesc);
       updateMetaTag('og:title', pageTitle, true);
       updateMetaTag('og:description', pageDesc, true);
-      updateMetaTag('og:type', 'music.song', true);
+      updateMetaTag('og:type', selectedSong ? 'music.song' : 'website', true);
+      if (selectedSong) {
+        updateMetaTag('og:url', songCanonicalUrl(selectedSong), true);
+        let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+        if (!canonical) {
+          canonical = document.createElement('link');
+          canonical.rel = 'canonical';
+          document.head.appendChild(canonical);
+        }
+        canonical.href = songCanonicalUrl(selectedSong);
+      }
 
       if (selectedSong) {
         let scriptTag = document.querySelector('#morpheus-schema-jsonld') as HTMLScriptElement | null;
@@ -238,6 +267,7 @@ export default function MorpheusWebPortal() {
           '@context': 'https://schema.org',
           '@type': 'MusicComposition',
           name: selectedSong.title,
+          url: songCanonicalUrl(selectedSong),
           composer: {
             '@type': 'Person',
             name: selectedSong.artist
@@ -301,6 +331,7 @@ export default function MorpheusWebPortal() {
     setProfile(null);
     setPlaylists([]);
     setCurrentView('portal');
+    exitPlaylistMode();
     alert('Başarıyla çıkış yapıldı.');
   };
 
@@ -321,22 +352,51 @@ export default function MorpheusWebPortal() {
 
     if (!error && data) {
       setSongs(data);
-      if (data.length > 0 && !selectedSong) {
-        setSelectedSong(data[0]);
-      }
+      applyLocationToSongs(data);
     }
     setLoading(false);
   };
 
+  const applyLocationToSongs = (list: any[]) => {
+    if (!list.length) return;
+
+    if (typeof window === 'undefined') {
+      if (!selectedSong) setSelectedSong(list[0]);
+      return;
+    }
+
+    const route = parsePathname(window.location.pathname);
+    if (route.kind === 'song') {
+      const found = findSongBySlug(list, route.slug);
+      if (found) {
+        skipUrlWrite.current = true;
+        setSelectedSong(found);
+        replacePortalUrl(songPath(found));
+        return;
+      }
+    }
+
+    if (route.kind === 'page') {
+      setInfoPageId(route.page);
+    }
+
+    if (!selectedSong) {
+      setSelectedSong(list[0]);
+    }
+  };
+
   const fetchPlaylists = async (userId: string) => {
-    try {
-      const { data } = await supabase
-        .from('morfeus_playlists')
-        .select('*')
-        .eq('user_id', userId)
-        .order('id', { ascending: false });
-      if (data) setPlaylists(data);
-    } catch {}
+    const { data, error } = await supabase
+      .from('morfeus_playlists')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Repertuvar listeleri alınamadı:', error.message);
+      return;
+    }
+    setPlaylists(data || []);
   };
 
   const handleCreatePlaylist = async () => {
@@ -350,8 +410,7 @@ export default function MorpheusWebPortal() {
       .from('morfeus_playlists')
       .insert({
         user_id: user.id,
-        title: newPlaylistTitle.trim(),
-        song_count: 0
+        title: newPlaylistTitle.trim()
       })
       .select()
       .single();
@@ -366,27 +425,134 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  const handleAddSongToPlaylist = async (playlistId: number) => {
+  const handleAddSongToPlaylist = async (playlistId: string) => {
     if (!selectedSong) return;
+    if (!user) {
+      handleOpenAuth();
+      return;
+    }
+
+    const target = playlists.find((pl) => pl.id === playlistId);
+
     const { error } = await supabase
       .from('playlist_songs')
       .insert({
         playlist_id: playlistId,
-        song_id: selectedSong.id
+        song_id: selectedSong.id,
+        sort_order: target?.song_count ?? 0
       });
 
     if (error) {
-      alert('Bu parça zaten listede veya bir hata oluştu: ' + error.message);
-    } else {
-      await supabase
-        .from('morfeus_songs')
-        .update({ playlist_count: (selectedSong.playlist_count || 0) + 1 })
-        .eq('id', selectedSong.id);
-
-      setSelectedSong({ ...selectedSong, playlist_count: (selectedSong.playlist_count || 0) + 1 });
-      setAddToListModalVisible(false);
-      alert(`"${selectedSong.title}" repertuvara eklendi!`);
+      // 23505 = unique (playlist_id, song_id) ihlali
+      alert(
+        error.code === '23505'
+          ? 'Bu parça zaten bu repertuvarda kayıtlı.'
+          : 'Parça eklenemedi: ' + error.message
+      );
+      return;
     }
+
+    setSelectedSong({ ...selectedSong, playlist_count: (selectedSong.playlist_count || 0) + 1 });
+    setAddToListModalVisible(false);
+    await fetchPlaylists(user.id);
+    if (activePlaylist?.id === playlistId) {
+      await loadPlaylistSongs(activePlaylist);
+    }
+    alert(`"${selectedSong.title}" repertuvara eklendi!`);
+  };
+
+  const loadPlaylistSongs = async (playlist: any) => {
+    setLoadingPlaylistSongs(true);
+    const { data, error } = await supabase
+      .from('playlist_songs')
+      .select('song_id, sort_order, created_at, morfeus_songs(*)')
+      .eq('playlist_id', playlist.id)
+      .order('sort_order', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
+    setLoadingPlaylistSongs(false);
+
+    if (error) {
+      alert('Repertuvar parçaları yüklenemedi: ' + error.message);
+      return [];
+    }
+
+    const rows = (data || []).map((row: any) => row.morfeus_songs).filter(Boolean);
+    setPlaylistSongs(rows);
+    return rows;
+  };
+
+  const handleLoadPlaylistToStage = async (playlist: any) => {
+    const rows = await loadPlaylistSongs(playlist);
+    setActivePlaylist(playlist);
+    setViewMode('lists');
+    setPlaylistModalVisible(false);
+
+    if (rows.length > 0) {
+      await handleSelectSong(rows[0]);
+    } else {
+      alert(`"${playlist.title}" listesi henüz boş. Bir parça açıp "LİSTEYE EKLE" ile doldurabilirsiniz.`);
+    }
+  };
+
+  const openPlaylistModal = () => {
+    if (!user) {
+      handleOpenAuth();
+      return;
+    }
+    setPlaylistModalVisible(true);
+  };
+
+  const openAddToListModal = () => {
+    if (!user) {
+      handleOpenAuth();
+      return;
+    }
+    setAddToListModalVisible(true);
+  };
+
+  const exitPlaylistMode = () => {
+    setActivePlaylist(null);
+    setPlaylistSongs([]);
+    setViewMode('songs');
+  };
+
+  const handleDeletePlaylist = async (playlist: any) => {
+    const confirmed =
+      typeof confirm === 'function'
+        ? confirm(`"${playlist.title}" listesi ve içindeki parça bağlantıları silinecek. Onaylıyor musunuz?`)
+        : true;
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from('morfeus_playlists')
+      .delete()
+      .eq('id', playlist.id);
+
+    if (error) {
+      alert('Liste silinemedi: ' + error.message);
+      return;
+    }
+
+    if (activePlaylist?.id === playlist.id) exitPlaylistMode();
+    setPlaylists(playlists.filter((pl) => pl.id !== playlist.id));
+  };
+
+  const handleRemoveSongFromPlaylist = async (songId: string) => {
+    if (!activePlaylist || !user) return;
+
+    const { error } = await supabase
+      .from('playlist_songs')
+      .delete()
+      .eq('playlist_id', activePlaylist.id)
+      .eq('song_id', songId);
+
+    if (error) {
+      alert('Parça listeden çıkarılamadı: ' + error.message);
+      return;
+    }
+
+    setPlaylistSongs(playlistSongs.filter((s) => s.id !== songId));
+    await fetchPlaylists(user.id);
   };
 
   const handleRateSong = async (stars: number) => {
@@ -550,7 +716,7 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  const handleSelectSong = async (song: any) => {
+  const handleSelectSong = async (song: any, options?: { fromHistory?: boolean }) => {
     setSelectedSong(song);
     setSemitoneShift(0);
     setActiveArrangementContent(null);
@@ -561,10 +727,43 @@ export default function MorpheusWebPortal() {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ y: 0, animated: true });
     }
-    await supabase
-      .from('morfeus_songs')
-      .update({ views: (song.views || 0) + 1 })
-      .eq('id', song.id);
+
+    if (!options?.fromHistory) {
+      setInfoPageId(null);
+      if (!skipUrlWrite.current) {
+        pushPortalUrl(songPath(song));
+      }
+    }
+    skipUrlWrite.current = false;
+
+    if (!options?.fromHistory) {
+      await supabase
+        .from('morfeus_songs')
+        .update({ views: (song.views || 0) + 1 })
+        .eq('id', song.id);
+    }
+  };
+
+  const openInfoPage = (page: InfoPageId) => {
+    setInfoPageId(page);
+    pushPortalUrl(infoPath(page));
+  };
+
+  const closeInfoPage = () => {
+    setInfoPageId(null);
+    if (selectedSong) {
+      replacePortalUrl(songPath(selectedSong));
+    } else {
+      replacePortalUrl('/');
+    }
+  };
+
+  const openProfile = () => {
+    if (!user) {
+      handleOpenAuth();
+      return;
+    }
+    setActiveModal('profile');
   };
 
   const handleUpdateOriginalKey = async (newKeyVal: string) => {
@@ -576,6 +775,29 @@ export default function MorpheusWebPortal() {
       .update({ original_key: newKeyVal })
       .eq('id', selectedSong.id);
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const onPopState = () => {
+      const route = parsePathname(window.location.pathname);
+      if (route.kind === 'page') {
+        setInfoPageId(route.page);
+        return;
+      }
+      setInfoPageId(null);
+      if (route.kind === 'song') {
+        const found = findSongBySlug(songs, route.slug);
+        if (found) {
+          skipUrlWrite.current = true;
+          handleSelectSong(found, { fromHistory: true });
+        }
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [songs]);
 
   const currentContent = activeArrangementContent || selectedSong?.content || '';
 
@@ -624,6 +846,9 @@ export default function MorpheusWebPortal() {
       return 0;
     });
   }, [songs, searchQuery, originFilter, selectedGenre, selectedYear, selectedLetter, sortFilter]);
+
+  // Repertuvar modu açıkken sol kolon kütüphane yerine listenin parçalarını gösterir
+  const visibleSongs = activePlaylist ? playlistSongs : filteredSongs;
 
   const handleRunAiArrangement = async () => {
     if (!selectedSong) return;
@@ -689,19 +914,19 @@ export default function MorpheusWebPortal() {
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('events')}><Text style={styles.menuBtnText}>ETKİNLİKLER</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('courses')}><Text style={styles.menuBtnText}>EĞİTİMLER</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('store')}><Text style={styles.menuBtnText}>MAĞAZA</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.menuBtn} onPress={() => alert('Morpheus Help & Teori Merkezi')}><Text style={styles.menuBtnText}>HELP</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => openInfoPage('yardim')}><Text style={styles.menuBtnText}>HELP</Text></TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.topNavRight}>
           <View style={styles.webAppSwitch}>
             <TouchableOpacity style={[styles.switchBtn, styles.switchActive]}><Text style={styles.switchText}>WEB</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.switchBtn} onPress={() => alert('Mobile App Store yönlendirmesi')}><Text style={styles.switchText}>APP</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.switchBtn} onPress={() => setActiveModal('webconnect')}><Text style={styles.switchText}>APP</Text></TouchableOpacity>
           </View>
 
           {user ? (
             <View style={styles.userControls}>
-              <TouchableOpacity onPress={() => setActiveModal('profile')}>
+              <TouchableOpacity onPress={openProfile}>
                 <Text style={styles.userBadge}>
                   {user.email?.split('@')[0]} ({isUserAdmin ? 'ADMIN' : (profile?.membership_tier?.toUpperCase() || 'BASIC')})
                 </Text>
@@ -1123,7 +1348,7 @@ export default function MorpheusWebPortal() {
                   {/* LİSTELER BUTONU */}
                   <TouchableOpacity
                     style={[styles.filterChipSpecial, viewMode === 'lists' && styles.activeChipSpecial]}
-                    onPress={() => setPlaylistModalVisible(true)}
+                    onPress={openPlaylistModal}
                   >
                     <Text style={styles.filterChipTextSpecial}>LİSTELER</Text>
                   </TouchableOpacity>
@@ -1155,15 +1380,31 @@ export default function MorpheusWebPortal() {
             {/* SOL: Arama Listesi */}
             <View style={styles.leftCol}>
               <View style={styles.colHeader}>
-                <Text style={styles.colHeaderText}>Akor Kütüphanesi</Text>
-                <Text style={styles.counterText}>{filteredSongs.length} Eser</Text>
+                <Text style={styles.colHeaderText}>
+                  {activePlaylist ? `📁 ${activePlaylist.title}` : 'Akor Kütüphanesi'}
+                </Text>
+                <Text style={styles.counterText}>{visibleSongs.length} Eser</Text>
               </View>
 
-              {loading ? (
+              {activePlaylist && (
+                <TouchableOpacity style={styles.playlistModeBanner} onPress={exitPlaylistMode}>
+                  <Text style={styles.playlistModeBannerText}>Repertuvar modu açık • ✕ Kütüphaneye dön</Text>
+                </TouchableOpacity>
+              )}
+
+              {loading || loadingPlaylistSongs ? (
                 <ActivityIndicator color="#0284c7" style={{ marginTop: 40 }} />
+              ) : visibleSongs.length === 0 ? (
+                <View style={styles.emptyListBox}>
+                  <Text style={styles.emptyListText}>
+                    {activePlaylist
+                      ? 'Bu repertuvar boş. Bir parça açıp "LİSTEYE EKLE" ile ekleyin.'
+                      : 'Aramanızla eşleşen parça bulunamadı.'}
+                  </Text>
+                </View>
               ) : (
                 <ScrollView style={styles.songListScroll} showsVerticalScrollIndicator={true}>
-                  {filteredSongs.map((song) => {
+                  {visibleSongs.map((song) => {
                     const isSelected = selectedSong?.id === song.id;
                     return (
                       <TouchableOpacity
@@ -1175,7 +1416,16 @@ export default function MorpheusWebPortal() {
                           <Text style={[styles.songCardTitle, isSelected && styles.textWhite]}>{song.title}</Text>
                           <Text style={styles.songCardArtist}>{song.artist} • {song.genre || 'Genel'}</Text>
                         </View>
-                        <Text style={styles.keyTag}>{song.original_key || 'Am'}</Text>
+                        {activePlaylist ? (
+                          <TouchableOpacity
+                            style={styles.removeFromListBtn}
+                            onPress={() => handleRemoveSongFromPlaylist(song.id)}
+                          >
+                            <Text style={styles.removeFromListBtnText}>✕</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={styles.keyTag}>{song.original_key || 'Am'}</Text>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -1207,7 +1457,7 @@ export default function MorpheusWebPortal() {
 
                     <TouchableOpacity
                       style={styles.actionBtnListAdd}
-                      onPress={() => setAddToListModalVisible(true)}
+                      onPress={openAddToListModal}
                     >
                       <Text style={styles.actionBtnListAddText}>📑 LİSTEYE EKLE</Text>
                     </TouchableOpacity>
@@ -1441,13 +1691,13 @@ export default function MorpheusWebPortal() {
                   </View>
 
                   <View style={styles.memberLinks}>
-                    <TouchableOpacity style={styles.memberLinkBtn} onPress={handleOpenAuth}>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={openProfile}>
                       <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={[styles.memberLinkBtn, { backgroundColor: '#0284c725', borderColor: '#0284c7', borderWidth: 1 }]}
-                      onPress={() => setPlaylistModalVisible(true)}
+                      onPress={openPlaylistModal}
                     >
                       <Text style={[styles.memberLinkText, { color: '#38bdf8', fontWeight: '700' }]}>
                         📁 Parça & Repertuvar Listelerim ({playlists.length})
@@ -1509,24 +1759,24 @@ export default function MorpheusWebPortal() {
             <View style={styles.footerInner}>
               <View style={styles.footerCol}>
                 <Text style={styles.footerColTitle}>KURUMSAL</Text>
-                <TouchableOpacity onPress={() => alert('Morpheus Hakkında')}><Text style={styles.footerLink}>Hakkımızda</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('İletişim: info@360bct.com')}><Text style={styles.footerLink}>İletişim & Destek</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('Künye & Ekip')}><Text style={styles.footerLink}>Künye</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('Reklam & Sponsorluk')}><Text style={styles.footerLink}>Sponsorluk Başvurusu</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('hakkimizda')}><Text style={styles.footerLink}>Hakkımızda</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('iletisim')}><Text style={styles.footerLink}>İletişim & Destek</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('kunye')}><Text style={styles.footerLink}>Künye</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('sponsorluk')}><Text style={styles.footerLink}>Sponsorluk Başvurusu</Text></TouchableOpacity>
               </View>
 
               <View style={styles.footerCol}>
                 <Text style={styles.footerColTitle}>HUKUKİ & GÜVENLİK</Text>
-                <TouchableOpacity onPress={() => alert('Kullanım Koşulları')}><Text style={styles.footerLink}>Kullanıcı Sözleşmesi</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('Gizlilik İlkeleri')}><Text style={styles.footerLink}>Gizlilik Politikası</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('KVKK Metni')}><Text style={styles.footerLink}>KVKK & Çerezler</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('Telif Hakları Uyarısı')}><Text style={styles.footerLink}>Telif Hakları & Lisans</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('kullanim-kosullari')}><Text style={styles.footerLink}>Kullanıcı Sözleşmesi</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('gizlilik')}><Text style={styles.footerLink}>Gizlilik Politikası</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('kvkk')}><Text style={styles.footerLink}>KVKK & Çerezler</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('telif')}><Text style={styles.footerLink}>Telif Hakları & Lisans</Text></TouchableOpacity>
               </View>
 
               <View style={styles.footerCol}>
                 <Text style={styles.footerColTitle}>TOPLULUK & MÜZİK</Text>
                 <TouchableOpacity onPress={() => setActiveModal('forum')}><Text style={styles.footerLink}>Müzisyen Forumu</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => alert('Akor Ekleme Standartları Kılavuzu')}><Text style={styles.footerLink}>Akor Kılavuzu</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openInfoPage('akor-kilavuzu')}><Text style={styles.footerLink}>Akor Kılavuzu</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => setActiveModal('courses')}><Text style={styles.footerLink}>Online Eğitimler</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => setActiveModal('events')}><Text style={styles.footerLink}>Canlı Etkinlikler</Text></TouchableOpacity>
               </View>
@@ -1594,15 +1844,20 @@ export default function MorpheusWebPortal() {
                       <Text style={styles.playlistItemTitle}>{pl.title}</Text>
                       <Text style={styles.playlistItemSub}>{pl.song_count || 0} Parça</Text>
                     </View>
-                    <TouchableOpacity
-                      style={styles.playlistOpenBtn}
-                      onPress={() => {
-                        alert(`"${pl.title}" repertuvarındaki parçalar sahneye aktarılıyor...`);
-                        setPlaylistModalVisible(false);
-                      }}
-                    >
-                      <Text style={styles.playlistOpenBtnText}>Sahneye Yükle ➔</Text>
-                    </TouchableOpacity>
+                    <View style={styles.playlistItemActions}>
+                      <TouchableOpacity
+                        style={styles.playlistOpenBtn}
+                        onPress={() => handleLoadPlaylistToStage(pl)}
+                      >
+                        <Text style={styles.playlistOpenBtnText}>Sahneye Yükle ➔</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.playlistDeleteBtn}
+                        onPress={() => handleDeletePlaylist(pl)}
+                      >
+                        <Text style={styles.playlistDeleteBtnText}>🗑</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))
               )}
@@ -1627,7 +1882,18 @@ export default function MorpheusWebPortal() {
 
             <ScrollView style={{ maxHeight: 220, marginVertical: 10 }}>
               {playlists.length === 0 ? (
-                <Text style={styles.emptyListText}>Henüz bir listeniz yok. Önce profilinizden liste oluşturun.</Text>
+                <View style={styles.emptyListBox}>
+                  <Text style={styles.emptyListText}>Henüz bir repertuvar listeniz yok.</Text>
+                  <TouchableOpacity
+                    style={[styles.createPlaylistBtn, { marginTop: 10, paddingVertical: 8 }]}
+                    onPress={() => {
+                      setAddToListModalVisible(false);
+                      openPlaylistModal();
+                    }}
+                  >
+                    <Text style={styles.createPlaylistBtnText}>+ Liste Oluştur</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
                 playlists.map((pl) => (
                   <TouchableOpacity
@@ -1828,6 +2094,30 @@ export default function MorpheusWebPortal() {
           onClose={() => setActiveModal(null)}
         />
       )}
+      {activeModal === 'webconnect' && (
+        <WebConnectModal
+          visible={true}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+      {activeModal === 'profile' && (
+        <ProfileModal
+          visible={true}
+          email={user?.email}
+          fullName={profile?.full_name}
+          membershipTier={profile?.membership_tier}
+          isAdmin={isUserAdmin}
+          playlistCount={playlists.length}
+          onClose={() => setActiveModal(null)}
+          onLogout={handleLogout}
+          onOpenPlaylists={openPlaylistModal}
+        />
+      )}
+      <InfoModal
+        visible={!!infoPageId}
+        pageId={infoPageId}
+        onClose={closeInfoPage}
+      />
     </ScrollView>
   );
 }
@@ -2129,6 +2419,13 @@ const styles = StyleSheet.create({
   playlistItemSub: { color: '#64748b', fontSize: 11, marginTop: 2 },
   playlistOpenBtn: { backgroundColor: '#1e293b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: '#334155' },
   playlistOpenBtnText: { color: '#38bdf8', fontSize: 11, fontWeight: '700' },
+  playlistItemActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  playlistDeleteBtn: { backgroundColor: '#1e293b', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: '#7f1d1d' },
+  playlistDeleteBtnText: { color: '#f87171', fontSize: 11, fontWeight: '700' },
+  playlistModeBanner: { backgroundColor: '#8b5cf620', borderWidth: 1, borderColor: '#8b5cf6', borderRadius: 4, paddingVertical: 5, paddingHorizontal: 8, marginBottom: 8 },
+  playlistModeBannerText: { color: '#c4b5fd', fontSize: 10, fontWeight: '700', textAlign: 'center' },
+  removeFromListBtn: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#7f1d1d' },
+  removeFromListBtnText: { color: '#f87171', fontSize: 11, fontWeight: '700' },
   playlistSelectOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, backgroundColor: '#090d16', borderRadius: 6, marginBottom: 6, borderWidth: 1, borderColor: '#1e293b' },
   playlistSelectText: { color: '#f8fafc', fontSize: 12, fontWeight: '600' },
   playlistSelectPlus: { color: '#10b981', fontSize: 12, fontWeight: '700' },
