@@ -7,8 +7,10 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
-  Modal
+  useWindowDimensions,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { sanitizeSongContent, transposeContent } from '../utils/chordEngine';
 import { getPianoKeysForChord } from '../utils/pianoDiagrams';
@@ -25,7 +27,19 @@ import SubscriptionModal from './SubscriptionModal';
 import TunerModal from './TunerModal';
 import WebConnectModal from './WebConnectModal';
 import InfoModal from './InfoModal';
-import ProfileModal from './ProfileModal';
+import ProfileStage from './ProfileModal';
+import CenterTabs from './portal/CenterTabs';
+import PlaylistsPanel from './portal/PlaylistsPanel';
+import InboxPanel from './portal/InboxPanel';
+import { fetchMyCorrections } from '../services/inboxService';
+import {
+  type CenterPane,
+  type MobileShelf,
+  displayTier,
+  isUpperMembership,
+  resolveBadge,
+  resolvePalette,
+} from '../utils/membership';
 
 // Sabitler
 import { GENRES, YEARS, ALPHABET, ALL_KEYS } from '../constants/filters';
@@ -97,8 +111,15 @@ export default function MorpheusWebPortal() {
   const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
 
-  // Görünüm Modu
-  const [currentView, setCurrentView] = useState<'portal' | 'admin'>('portal');
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const isMobile = viewportWidth < 820;
+  const isTablet = viewportWidth >= 820 && viewportWidth < 1100;
+  const stageHeight = Math.max(420, viewportHeight - (isMobile ? 220 : 250));
+
+  const [centerPane, setCenterPane] = useState<CenterPane>('song');
+  const [mobileShelf, setMobileShelf] = useState<MobileShelf>('stage');
+  const [myCorrections, setMyCorrections] = useState<any[]>([]);
+  const [loadingMyCorrections, setLoadingMyCorrections] = useState(false);
 
   // Filtreler
   const [searchQuery, setSearchQuery] = useState('');
@@ -126,7 +147,7 @@ export default function MorpheusWebPortal() {
   const scrollPosition = useRef(0);
 
   // AI Aranje
-  const [aiModalVisible, setAiModalVisible] = useState(false);
+  const [aiModalVisible, setAiModalVisible] = useState(false); // reserved for overlay fallback
   const [aiLoading, setAiLoading] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<ReharmonizeStyle>('jazz');
   const [aiResult, setAiResult] = useState<ReharmonizeResult | null>(null);
@@ -194,7 +215,8 @@ export default function MorpheusWebPortal() {
         setUser(null);
         setProfile(null);
         setPlaylists([]);
-        setCurrentView('portal');
+        setCenterPane('song');
+        setMobileShelf('stage');
         exitPlaylistMode();
       }
     });
@@ -330,7 +352,8 @@ export default function MorpheusWebPortal() {
     setUser(null);
     setProfile(null);
     setPlaylists([]);
-    setCurrentView('portal');
+    setCenterPane('song');
+    setMobileShelf('stage');
     exitPlaylistMode();
     alert('Başarıyla çıkış yapıldı.');
   };
@@ -342,6 +365,34 @@ export default function MorpheusWebPortal() {
     if (profile?.membership_tier?.toLowerCase() === 'admin') return true;
     return false;
   }, [user, profile]);
+
+  const isPremiumUser = isUpperMembership(profile?.membership_tier, isUserAdmin);
+  const palette = resolvePalette(isPremiumUser ? profile?.chord_palette : 'classic');
+  const headerBadge = resolveBadge(profile?.stage_badge);
+
+  const openCenter = (pane: CenterPane) => {
+    if (pane !== 'song' && !user && pane !== 'ai') {
+      handleOpenAuth();
+      return;
+    }
+    if (pane === 'admin' && !isUserAdmin) return;
+    setCenterPane(pane);
+    setMobileShelf('stage');
+    if (pane === 'inbox' && user) {
+      // inbox panel self-loads
+    }
+    if (pane === 'my_corrections' && user) {
+      setLoadingMyCorrections(true);
+      fetchMyCorrections(user.id).then((rows) => {
+        setMyCorrections(rows);
+        setLoadingMyCorrections(false);
+      });
+    }
+    if (pane === 'admin' && isUserAdmin) {
+      fetchCorrections();
+      fetchAllProfiles();
+    }
+  };
 
   const fetchSongs = async () => {
     setLoading(true);
@@ -453,7 +504,7 @@ export default function MorpheusWebPortal() {
     }
 
     setSelectedSong({ ...selectedSong, playlist_count: (selectedSong.playlist_count || 0) + 1 });
-    setAddToListModalVisible(false);
+    setCenterPane('song');
     await fetchPlaylists(user.id);
     if (activePlaylist?.id === playlistId) {
       await loadPlaylistSongs(activePlaylist);
@@ -485,7 +536,7 @@ export default function MorpheusWebPortal() {
     const rows = await loadPlaylistSongs(playlist);
     setActivePlaylist(playlist);
     setViewMode('lists');
-    setPlaylistModalVisible(false);
+    setCenterPane('song');
 
     if (rows.length > 0) {
       await handleSelectSong(rows[0]);
@@ -494,21 +545,9 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  const openPlaylistModal = () => {
-    if (!user) {
-      handleOpenAuth();
-      return;
-    }
-    setPlaylistModalVisible(true);
-  };
+  const openPlaylistModal = () => openCenter('playlists');
 
-  const openAddToListModal = () => {
-    if (!user) {
-      handleOpenAuth();
-      return;
-    }
-    setAddToListModalVisible(true);
-  };
+  const openAddToListModal = () => openCenter('add_to_list');
 
   const exitPlaylistMode = () => {
     setActivePlaylist(null);
@@ -717,6 +756,7 @@ export default function MorpheusWebPortal() {
   };
 
   const handleSelectSong = async (song: any, options?: { fromHistory?: boolean }) => {
+    setCenterPane('song');
     setSelectedSong(song);
     setSemitoneShift(0);
     setActiveArrangementContent(null);
@@ -758,13 +798,7 @@ export default function MorpheusWebPortal() {
     }
   };
 
-  const openProfile = () => {
-    if (!user) {
-      handleOpenAuth();
-      return;
-    }
-    setActiveModal('profile');
-  };
+  const openProfile = () => openCenter('profile');
 
   const handleUpdateOriginalKey = async (newKeyVal: string) => {
     if (!selectedSong) return;
@@ -871,7 +905,7 @@ export default function MorpheusWebPortal() {
   const applyAiArrangement = () => {
     if (!aiResult) return;
     setActiveArrangementContent(sanitizeSongContent(aiResult.content));
-    setAiModalVisible(false);
+    setCenterPane('song');
   };
 
   const revertToOriginal = () => {
@@ -892,7 +926,7 @@ export default function MorpheusWebPortal() {
     if (error) {
       alert('Hata: ' + error.message);
     } else {
-      setCorrectionModalVisible(false);
+      setCenterPane('song');
       setCorrectionText('');
       setCorrectionNote('');
       alert('Düzeltme öneriniz admin havuzuna iletildi.');
@@ -904,7 +938,8 @@ export default function MorpheusWebPortal() {
   };
 
   return (
-    <ScrollView style={styles.outerScroll} contentContainerStyle={styles.outerScrollContent}>
+    <SafeAreaView style={styles.safeShell} edges={['top', 'left', 'right', 'bottom']}>
+    <ScrollView style={styles.outerScroll} contentContainerStyle={[styles.outerScrollContent, isMobile && { paddingBottom: 80 }]}>
       {/* 1. ÜST NAVİGASYON */}
       <View style={styles.topNav}>
         <View style={styles.topNavLeft}>
@@ -927,8 +962,8 @@ export default function MorpheusWebPortal() {
           {user ? (
             <View style={styles.userControls}>
               <TouchableOpacity onPress={openProfile}>
-                <Text style={styles.userBadge}>
-                  {user.email?.split('@')[0]} ({isUserAdmin ? 'ADMIN' : (profile?.membership_tier?.toUpperCase() || 'BASIC')})
+                <Text style={[styles.userBadge, { color: headerBadge.color }]}>
+                  {user.email?.split('@')[0]} ({displayTier(profile?.membership_tier, isUserAdmin)})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
@@ -950,300 +985,7 @@ export default function MorpheusWebPortal() {
       </View>
 
       {/* ADMIN GÖRÜNÜMÜ VEYA STANDART PORTAL GÖRÜNÜMÜ */}
-      {currentView === 'admin' ? (
-        /* ================= MASTER ADMIN DASHBOARD ================= */
-        <View style={styles.adminDashboardWrapper}>
-          <View style={styles.adminTopHeader}>
-            <TouchableOpacity style={styles.returnPortalBtn} onPress={() => setCurrentView('portal')}>
-              <Text style={styles.returnPortalBtnText}>← Sahneye / Portala Dön</Text>
-            </TouchableOpacity>
-            <Text style={styles.adminMainTitle}>⚙️ MASTER ADMIN KONSOLU</Text>
-            <View style={styles.adminStatsBox}>
-              <Text style={styles.adminStatChip}>📚 Şarkılar: {songs.length}</Text>
-              <Text style={styles.adminStatChip}>⏳ Düzeltmeler: {pendingCorrections.length}</Text>
-              <Text style={styles.adminStatChip}>👥 Üyeler: {allProfiles.length}</Text>
-            </View>
-          </View>
-
-          {/* DASHBOARD MODÜL SEKMELERİ */}
-          <View style={styles.adminTabSelector}>
-            <TouchableOpacity
-              style={[styles.adminTabBtn, adminTab === 'corrections' && styles.activeAdminTabBtn]}
-              onPress={() => {
-                setAdminTab('corrections');
-                fetchCorrections();
-              }}
-            >
-              <Text style={[styles.adminTabBtnText, adminTab === 'corrections' && styles.activeAdminTabText]}>
-                📝 Düzeltme Havuzu
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.adminTabBtn, adminTab === 'add_song' && styles.activeAdminTabBtn]}
-              onPress={() => setAdminTab('add_song')}
-            >
-              <Text style={[styles.adminTabBtnText, adminTab === 'add_song' && styles.activeAdminTabText]}>
-                ➕ Şarkı Ekle
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.adminTabBtn, adminTab === 'users' && styles.activeAdminTabBtn]}
-              onPress={() => {
-                setAdminTab('users');
-                fetchAllProfiles();
-              }}
-            >
-              <Text style={[styles.adminTabBtnText, adminTab === 'users' && styles.activeAdminTabText]}>
-                👥 Kullanıcı Yetki Masası
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.adminTabBtn, adminTab === 'forum_mod' && styles.activeAdminTabBtn]}
-              onPress={() => {
-                setAdminTab('forum_mod');
-                fetchForumPosts();
-              }}
-            >
-              <Text style={[styles.adminTabBtnText, adminTab === 'forum_mod' && styles.activeAdminTabText]}>
-                💬 Forum Denetimi
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.adminTabBtn, adminTab === 'events_mod' && styles.activeAdminTabBtn]}
-              onPress={() => {
-                setAdminTab('events_mod');
-                fetchEvents();
-              }}
-            >
-              <Text style={[styles.adminTabBtnText, adminTab === 'events_mod' && styles.activeAdminTabText]}>
-                📅 Sahne & Etkinlik Takvimi
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.adminTabContent}>
-            {/* 1. DÜZELTME ONAY HAVUZU */}
-            {adminTab === 'corrections' && (
-              <View style={styles.correctionsList}>
-                {loadingCorrections ? (
-                  <ActivityIndicator color="#8b5cf6" style={{ marginTop: 30 }} />
-                ) : pendingCorrections.length === 0 ? (
-                  <View style={styles.emptyAdminBox}>
-                    <Text style={styles.emptyAdminText}>Bekleyen hiçbir akor düzeltme talebi yok. Sistem güncel!</Text>
-                  </View>
-                ) : (
-                  pendingCorrections.map((corr) => (
-                    <View key={corr.id} style={styles.correctionCard}>
-                      <View style={styles.corrHeader}>
-                        <Text style={styles.corrSongTitle}>
-                          {corr.morfeus_songs?.title} - {corr.morfeus_songs?.artist}
-                        </Text>
-                        <View style={styles.corrActionBtns}>
-                          <TouchableOpacity style={styles.corrApproveBtn} onPress={() => handleApproveCorrection(corr)}>
-                            <Text style={styles.corrBtnText}>✓ Onayla & Yayına Al</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={styles.corrRejectBtn} onPress={() => handleRejectCorrection(corr.id)}>
-                            <Text style={styles.corrBtnTextRed}>✕ Reddet</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      {corr.notes ? <Text style={styles.corrNote}>💬 Kullanıcı Notu: {corr.notes}</Text> : null}
-                      <ScrollView style={styles.corrCodeBox} nestedScrollEnabled>
-                        <Text style={styles.corrCodeText}>{corr.suggested_content}</Text>
-                      </ScrollView>
-                    </View>
-                  ))
-                )}
-              </View>
-            )}
-
-            {/* 2. YENİ ŞARKI EKLEME */}
-            {adminTab === 'add_song' && (
-              <View style={styles.addSongForm}>
-                <View style={styles.formRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Şarkı Adı:</Text>
-                    <TextInput style={styles.formInput} value={newTitle} onChangeText={setNewTitle} placeholder="Örn: Caddelerde Rüzgar" placeholderTextColor="#64748b" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Sanatçı:</Text>
-                    <TextInput style={styles.formInput} value={newArtist} onChangeText={setNewArtist} placeholder="Örn: Nilüfer" placeholderTextColor="#64748b" />
-                  </View>
-                </View>
-
-                <View style={styles.formRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Orijinal Ton:</Text>
-                    <TextInput style={styles.formInput} value={newKey} onChangeText={setNewKey} placeholder="Örn: Am" placeholderTextColor="#64748b" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Tür:</Text>
-                    <TextInput style={styles.formInput} value={newGenre} onChangeText={setNewGenre} placeholder="Örn: Rock / Pop" placeholderTextColor="#64748b" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Yıl:</Text>
-                    <TextInput style={styles.formInput} value={newYear} onChangeText={setNewYear} placeholder="Örn: 1990" placeholderTextColor="#64748b" />
-                  </View>
-                </View>
-
-                <Text style={styles.formLabel}>Şarkı Sözü ve Akor Formatı (Monospace):</Text>
-                <TextInput
-                  style={[styles.formInput, { height: 240, fontFamily: 'monospace', textAlignVertical: 'top' }, { whiteSpace: 'pre' } as object]}
-                  multiline
-                  value={newContent}
-                  onChangeText={setNewContent}
-                  placeholder="Am            Dm&#10;Sözlerin üzerine akorları hizalayın..."
-                  placeholderTextColor="#64748b"
-                />
-
-                <TouchableOpacity style={styles.saveSongBtn} onPress={handleSaveNewSong} disabled={savingNewSong}>
-                  <Text style={styles.saveSongBtnText}>{savingNewSong ? 'Kaydediliyor...' : '💾 Parçayı Morpheus Kütüphanesine Kaydet'}</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* 3. KULLANICI YÖNETİMİ */}
-            {adminTab === 'users' && (
-              <View style={styles.usersTableWrapper}>
-                {loadingProfiles ? (
-                  <ActivityIndicator color="#8b5cf6" style={{ marginTop: 30 }} />
-                ) : (
-                  <View style={styles.tableCard}>
-                    <View style={styles.tableHeaderRow}>
-                      <Text style={[styles.thText, { flex: 2 }]}>E-Posta / İsim</Text>
-                      <Text style={[styles.thText, { flex: 1 }]}>Mevcut Rol</Text>
-                      <Text style={[styles.thText, { flex: 2 }]}>Rolü Değiştir (Tek Tık)</Text>
-                    </View>
-                    {allProfiles.map((p) => (
-                      <View key={p.id} style={styles.tableBodyRow}>
-                        <View style={{ flex: 2 }}>
-                          <Text style={styles.tdTextEmail}>{p.email}</Text>
-                          <Text style={styles.tdTextSub}>{p.full_name || 'İsimsiz Üye'}</Text>
-                        </View>
-                        <Text style={[styles.tdBadge, { flex: 1 }]}>
-                          {p.membership_tier?.toUpperCase() || 'BASIC'}
-                        </Text>
-                        <View style={styles.roleActionButtons}>
-                          <TouchableOpacity
-                            style={[styles.roleMiniBtn, p.membership_tier === 'basic' && styles.activeMiniBtn]}
-                            onPress={() => handleUpdateUserRole(p.id, 'basic')}
-                          >
-                            <Text style={styles.roleMiniBtnText}>BASIC</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.roleMiniBtn, p.membership_tier === 'premium' && styles.activeMiniBtn]}
-                            onPress={() => handleUpdateUserRole(p.id, 'premium')}
-                          >
-                            <Text style={styles.roleMiniBtnText}>PRO</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.roleMiniBtn, p.membership_tier === 'band' && styles.activeMiniBtn]}
-                            onPress={() => handleUpdateUserRole(p.id, 'band')}
-                          >
-                            <Text style={styles.roleMiniBtnText}>BAND</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.roleMiniBtn, p.membership_tier === 'admin' && styles.activeMiniBtnAdmin]}
-                            onPress={() => handleUpdateUserRole(p.id, 'admin')}
-                          >
-                            <Text style={styles.roleMiniBtnTextAdmin}>ADMIN</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* 4. FORUM DENETİMİ */}
-            {adminTab === 'forum_mod' && (
-              <View style={{ maxWidth: 850, gap: 10 }}>
-                {loadingForum ? (
-                  <ActivityIndicator color="#8b5cf6" style={{ marginTop: 20 }} />
-                ) : forumPosts.length === 0 ? (
-                  <View style={styles.emptyAdminBox}>
-                    <Text style={styles.emptyAdminText}>Henüz forum iletisi bulunmuyor.</Text>
-                  </View>
-                ) : (
-                  forumPosts.map((post) => (
-                    <View key={post.id} style={styles.tableCard}>
-                      <View style={{ padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <View style={{ flex: 1, marginRight: 10 }}>
-                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 13 }}>{post.title || post.content?.slice(0, 50)}</Text>
-                          <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>{post.content}</Text>
-                          <Text style={{ color: '#64748b', fontSize: 10, marginTop: 6 }}>Yazar: {post.author_email || 'Kullanıcı'} • {post.category || 'Genel'}</Text>
-                        </View>
-                        <TouchableOpacity
-                          style={{ backgroundColor: '#ef444420', borderWidth: 1, borderColor: '#ef444460', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4 }}
-                          onPress={() => handleDeleteForumPost(post.id)}
-                        >
-                          <Text style={{ color: '#f87171', fontSize: 10, fontWeight: '700' }}>Sil</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </View>
-            )}
-
-            {/* 5. SAHNE & ETKİNLİK TAKVİMİ */}
-            {adminTab === 'events_mod' && (
-              <View style={{ maxWidth: 850, gap: 16 }}>
-                <View style={styles.addSongForm}>
-                  <Text style={{ color: '#f8fafc', fontWeight: '800', fontSize: 13, marginBottom: 4 }}>Yeni Etkinlik Ekle</Text>
-                  <View style={styles.formRow}>
-                    <View style={{ flex: 2 }}>
-                      <Text style={styles.formLabel}>Etkinlik / Konser Adı:</Text>
-                      <TextInput style={styles.formInput} value={eventTitle} onChangeText={setEventTitle} placeholder="Örn: Morpheus Jam Session #4" placeholderTextColor="#64748b" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.formLabel}>Şehir:</Text>
-                      <TextInput style={styles.formInput} value={eventCity} onChangeText={setEventCity} placeholder="İstanbul, Bursa..." placeholderTextColor="#64748b" />
-                    </View>
-                  </View>
-                  <View style={styles.formRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.formLabel}>Tarih & Saat:</Text>
-                      <TextInput style={styles.formInput} value={eventDate} onChangeText={setEventDate} placeholder="25 Ekim 2026 - 21:00" placeholderTextColor="#64748b" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.formLabel}>Mekan / Sahne:</Text>
-                      <TextInput style={styles.formInput} value={eventVenue} onChangeText={setEventVenue} placeholder="Dorock XL, Jolly Joker..." placeholderTextColor="#64748b" />
-                    </View>
-                  </View>
-                  <TouchableOpacity style={styles.saveSongBtn} onPress={handleSaveEvent} disabled={savingEvent}>
-                    <Text style={styles.saveSongBtnText}>{savingEvent ? 'Kaydediliyor...' : '📅 Etkinliği Takvime Ekle'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {eventsList.length > 0 && (
-                  <View style={styles.tableCard}>
-                    <View style={styles.tableHeaderRow}>
-                      <Text style={[styles.thText, { flex: 2 }]}>Etkinlik</Text>
-                      <Text style={[styles.thText, { flex: 1 }]}>Şehir</Text>
-                      <Text style={[styles.thText, { flex: 1 }]}>Tarih</Text>
-                    </View>
-                    {eventsList.map((ev) => (
-                      <View key={ev.id} style={styles.tableBodyRow}>
-                        <Text style={[styles.tdTextEmail, { flex: 2 }]}>{ev.title}</Text>
-                        <Text style={[styles.tdTextSub, { flex: 1 }]}>{ev.city} ({ev.venue})</Text>
-                        <Text style={[styles.tdBadge, { flex: 1 }]}>{ev.event_date}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-          </ScrollView>
-        </View>
-      ) : (
-        /* ================= NORMAL PORTAL SAHNE GÖRÜNÜMÜ ================= */
-        <View style={styles.portalBodyWrapper}>
+      <View style={styles.portalBodyWrapper}>
           {/* 3. ARAMA, FİLTRE VE ALFABE */}
           <View style={styles.searchSection}>
             <View style={styles.searchInnerWrapper}>
@@ -1376,9 +1118,14 @@ export default function MorpheusWebPortal() {
           </View>
 
           {/* 4. 3 KOLONLU GÖVDE */}
-          <View style={styles.mainGrid}>
+          <View style={[styles.mainGrid, { flexDirection: isMobile ? 'column' : 'row', height: isMobile ? undefined : stageHeight, minHeight: stageHeight }]}>
             {/* SOL: Arama Listesi */}
-            <View style={styles.leftCol}>
+            <View style={[styles.leftCol, {
+              height: stageHeight,
+              maxHeight: stageHeight,
+              width: isMobile ? '100%' : (isTablet ? 220 : 280),
+              display: isMobile && mobileShelf !== 'library' ? 'none' : 'flex',
+            }]}>
               <View style={styles.colHeader}>
                 <Text style={styles.colHeaderText}>
                   {activePlaylist ? `📁 ${activePlaylist.title}` : 'Akor Kütüphanesi'}
@@ -1433,15 +1180,230 @@ export default function MorpheusWebPortal() {
               )}
             </View>
 
-            {/* ORTA: Şarkı Sahnesi & Akor Tabları */}
-            <View style={styles.centerCol}>
-              {selectedSong ? (
+            {/* ORTA: Sahne, profil, listeler ve yönetim kartları */}
+            <View style={[styles.centerCol, {
+              height: stageHeight,
+              maxHeight: stageHeight,
+              overflow: 'hidden' as any,
+              display: isMobile && mobileShelf !== 'stage' ? 'none' : 'flex',
+            }]}>
+              <CenterTabs
+                active={centerPane}
+                loggedIn={!!user}
+                isAdmin={isUserAdmin}
+                onChange={openCenter}
+              />
+              {centerPane === 'profile' && user ? (
+                <ProfileStage
+                  userId={user.id}
+                  email={user.email}
+                  fullName={profile?.full_name}
+                  phone={profile?.phone}
+                  avatarUrl={profile?.avatar_url}
+                  stageBadge={profile?.stage_badge}
+                  chordPalette={profile?.chord_palette}
+                  cloudBackupAt={profile?.cloud_backup_at}
+                  membershipTier={profile?.membership_tier}
+                  isAdmin={isUserAdmin}
+                  playlistCount={playlists.length}
+                  onBackToStage={() => setCenterPane('song')}
+                  onLogout={handleLogout}
+                  onOpenPlaylists={openPlaylistModal}
+                  onProfileUpdated={(patch) =>
+                    setProfile((prev: any) => (prev ? { ...prev, ...patch } : prev))
+                  }
+                />
+              ) : centerPane === 'playlists' && user ? (
+                <PlaylistsPanel
+                  playlists={playlists}
+                  newTitle={newPlaylistTitle}
+                  creating={creatingPlaylist}
+                  onChangeTitle={setNewPlaylistTitle}
+                  onCreate={handleCreatePlaylist}
+                  onLoad={handleLoadPlaylistToStage}
+                  onDelete={handleDeletePlaylist}
+                  onBack={() => setCenterPane('song')}
+                />
+              ) : centerPane === 'inbox' && user ? (
+                <InboxPanel userId={user.id} onBack={() => setCenterPane('song')} />
+              ) : centerPane === 'add_song' && user ? (
+                <ScrollView style={styles.songViewWrapper} contentContainerStyle={{ paddingBottom: 40 }}>
+                  <Text style={styles.modalTitle}>Yeni Parça Ekle</Text>
+                  <View style={styles.addSongForm}>
+                    <View style={[styles.formRow, isMobile && { flexDirection: 'column' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.formLabel}>Şarkı Adı:</Text>
+                        <TextInput style={styles.formInput} value={newTitle} onChangeText={setNewTitle} placeholder="Şarkı adı" placeholderTextColor="#64748b" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.formLabel}>Sanatçı:</Text>
+                        <TextInput style={styles.formInput} value={newArtist} onChangeText={setNewArtist} placeholder="Sanatçı" placeholderTextColor="#64748b" />
+                      </View>
+                    </View>
+                    <View style={[styles.formRow, isMobile && { flexDirection: 'column' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.formLabel}>Ton:</Text>
+                        <TextInput style={styles.formInput} value={newKey} onChangeText={setNewKey} placeholder="Am" placeholderTextColor="#64748b" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.formLabel}>Tür:</Text>
+                        <TextInput style={styles.formInput} value={newGenre} onChangeText={setNewGenre} placeholder="Rock" placeholderTextColor="#64748b" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.formLabel}>Yıl:</Text>
+                        <TextInput style={styles.formInput} value={newYear} onChangeText={setNewYear} placeholder="2024" placeholderTextColor="#64748b" />
+                      </View>
+                    </View>
+                    <Text style={styles.formLabel}>Söz ve akor:</Text>
+                    <TextInput
+                      style={[styles.formInput, { height: 220, fontFamily: 'monospace', textAlignVertical: 'top' }, { whiteSpace: 'pre' } as object]}
+                      multiline
+                      value={newContent}
+                      onChangeText={setNewContent}
+                      placeholder="Akorları sözlerin üzerine hizalayın..."
+                      placeholderTextColor="#64748b"
+                    />
+                    <TouchableOpacity style={styles.saveSongBtn} onPress={handleSaveNewSong} disabled={savingNewSong}>
+                      <Text style={styles.saveSongBtnText}>{savingNewSong ? 'Kaydediliyor...' : 'Kütüphaneye Kaydet'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              ) : centerPane === 'my_corrections' && user ? (
+                <ScrollView style={styles.songViewWrapper}>
+                  <Text style={styles.modalTitle}>Gönderdiğim Düzeltmeler</Text>
+                  {loadingMyCorrections ? (
+                    <ActivityIndicator color="#38BDF8" style={{ marginTop: 20 }} />
+                  ) : myCorrections.length === 0 ? (
+                    <Text style={styles.emptyCenterText}>Henüz düzeltme öneriniz yok.</Text>
+                  ) : (
+                    myCorrections.map((corr) => (
+                      <View key={corr.id} style={styles.correctionCard}>
+                        <Text style={styles.corrSongTitle}>{corr.morfeus_songs?.title} — {corr.morfeus_songs?.artist}</Text>
+                        {corr.notes ? <Text style={styles.corrNote}>{corr.notes}</Text> : null}
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+              ) : centerPane === 'admin' && isUserAdmin ? (
+                <ScrollView style={styles.songViewWrapper} contentContainerStyle={{ paddingBottom: 40 }}>
+                  <Text style={styles.adminMainTitle}>Master Admin</Text>
+                  <View style={styles.adminTabSelector}>
+                    {([
+                      ['corrections', 'Düzeltmeler'],
+                      ['add_song', 'Şarkı Ekle'],
+                      ['users', 'Üyeler'],
+                      ['forum_mod', 'Forum'],
+                      ['events_mod', 'Etkinlik'],
+                    ] as const).map(([id, label]) => (
+                      <TouchableOpacity
+                        key={id}
+                        style={[styles.adminTabBtn, adminTab === id && styles.activeAdminTabBtn]}
+                        onPress={() => {
+                          setAdminTab(id);
+                          if (id === 'corrections') fetchCorrections();
+                          if (id === 'users') fetchAllProfiles();
+                          if (id === 'forum_mod') fetchForumPosts();
+                          if (id === 'events_mod') fetchEvents();
+                        }}
+                      >
+                        <Text style={[styles.adminTabBtnText, adminTab === id && styles.activeAdminTabText]}>{label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {adminTab === 'add_song' ? (
+                    <TouchableOpacity style={styles.returnPortalBtn} onPress={() => openCenter('add_song')}>
+                      <Text style={styles.returnPortalBtnText}>Parça ekleme kartını aç</Text>
+                    </TouchableOpacity>
+                  ) : adminTab === 'corrections' ? (
+                    loadingCorrections ? <ActivityIndicator color="#8b5cf6" /> : pendingCorrections.map((corr) => (
+                      <View key={corr.id} style={styles.correctionCard}>
+                        <Text style={styles.corrSongTitle}>{corr.morfeus_songs?.title} - {corr.morfeus_songs?.artist}</Text>
+                        <View style={styles.corrActionBtns}>
+                          <TouchableOpacity style={styles.corrApproveBtn} onPress={() => handleApproveCorrection(corr)}>
+                            <Text style={styles.corrBtnText}>Onayla</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.corrRejectBtn} onPress={() => handleRejectCorrection(corr.id)}>
+                            <Text style={styles.corrBtnTextRed}>Reddet</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  ) : adminTab === 'users' ? (
+                    loadingProfiles ? <ActivityIndicator color="#8b5cf6" /> : allProfiles.map((p) => (
+                      <View key={p.id} style={styles.tableBodyRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.tdTextEmail}>{p.email}</Text>
+                          <Text style={styles.tdTextSub}>{p.full_name || 'İsimsiz'}</Text>
+                        </View>
+                        <Text style={styles.tdBadge}>{p.membership_tier?.toUpperCase()}</Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.emptyCenterText}>Bu yönetim sekmesi orta alanda açıldı. Forum/etkinlik işlemleri için ilgili sekmeyi kullanın.</Text>
+                  )}
+                </ScrollView>
+              ) : centerPane === 'add_to_list' && user ? (
+                <ScrollView style={styles.songViewWrapper}>
+                  <Text style={styles.modalTitle}>Repertuvara Ekle</Text>
+                  <Text style={styles.modalSubtitle}>{selectedSong?.title} - {selectedSong?.artist}</Text>
+                  {playlists.length === 0 ? (
+                    <TouchableOpacity style={styles.createPlaylistBtn} onPress={() => openCenter('playlists')}>
+                      <Text style={styles.createPlaylistBtnText}>Önce liste oluştur</Text>
+                    </TouchableOpacity>
+                  ) : playlists.map((pl) => (
+                    <TouchableOpacity key={pl.id} style={styles.playlistSelectOption} onPress={() => handleAddSongToPlaylist(pl.id)}>
+                      <Text style={styles.playlistSelectText}>{pl.title}</Text>
+                      <Text style={styles.playlistSelectPlus}>+ Ekle</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : centerPane === 'ai' && selectedSong ? (
+                <ScrollView style={styles.songViewWrapper}>
+                  <Text style={styles.modalTitle}>AI Aranje</Text>
+                  <Text style={styles.modalSubtitle}>{selectedSong.title} - {selectedSong.artist}</Text>
+                  <View style={styles.styleSelectorRow}>
+                    {([
+                      { id: 'jazz', label: 'Jazz' },
+                      { id: 'bossa', label: 'Bossa' },
+                      { id: 'lofi', label: 'Lo-Fi' },
+                      { id: 'rock_ballad', label: 'Rock Ballad' },
+                    ] as const).map((st) => (
+                      <TouchableOpacity key={st.id} style={[styles.styleChip, selectedStyle === st.id && styles.activeStyleChip]} onPress={() => setSelectedStyle(st.id)}>
+                        <Text style={[styles.styleChipText, selectedStyle === st.id && styles.activeStyleChipText]}>{st.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {aiLoading ? <ActivityIndicator color="#8b5cf6" /> : aiResult ? (
+                    <Text style={styles.aiNotesText}>{aiResult.notes}</Text>
+                  ) : (
+                    <Text style={styles.aiPromptInfo}>Tarza göre akorlar zenginleştirilir, melodi korunur.</Text>
+                  )}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setCenterPane('song')}><Text style={styles.modalCancelText}>Sahneye Dön</Text></TouchableOpacity>
+                    {aiResult ? (
+                      <TouchableOpacity style={styles.modalSubmitBtn} onPress={applyAiArrangement}><Text style={styles.modalSubmitText}>Uygula</Text></TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleRunAiArrangement}><Text style={styles.modalSubmitText}>Üret</Text></TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
+              ) : centerPane === 'suggest' && selectedSong ? (
+                <ScrollView style={styles.songViewWrapper}>
+                  <Text style={styles.modalTitle}>Düzeltme Öner</Text>
+                  <TextInput style={styles.modalTextInput} multiline value={correctionText} onChangeText={setCorrectionText} />
+                  <TextInput style={styles.modalNoteInput} placeholder="Not" placeholderTextColor="#64748b" value={correctionNote} onChangeText={setCorrectionNote} />
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setCenterPane('song')}><Text style={styles.modalCancelText}>Vazgeç</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.modalSubmitBtn} onPress={submitCorrection}><Text style={styles.modalSubmitText}>Gönder</Text></TouchableOpacity>
+                  </View>
+                </ScrollView>
+              ) : selectedSong ? (
                 <ScrollView ref={scrollRef} style={styles.songViewWrapper} showsVerticalScrollIndicator={true}>
                   {/* Üst İşlem Butonları */}
                   <View style={styles.actionHeaderRow}>
                     <TouchableOpacity
                       style={styles.actionBtnAI}
-                      onPress={() => setAiModalVisible(true)}
+                      onPress={() => openCenter('ai')}
                     >
                       <Text style={styles.actionBtnText}>⚡ AI ARANJE ET</Text>
                     </TouchableOpacity>
@@ -1457,7 +1419,7 @@ export default function MorpheusWebPortal() {
 
                     <TouchableOpacity
                       style={styles.actionBtnListAdd}
-                      onPress={openAddToListModal}
+                      onPress={() => openCenter('add_to_list')}
                     >
                       <Text style={styles.actionBtnListAddText}>📑 LİSTEYE EKLE</Text>
                     </TouchableOpacity>
@@ -1642,7 +1604,7 @@ export default function MorpheusWebPortal() {
                   </View>
 
                   {/* Şarkı Sözleri ve Ayrıştırılmış Renkli Akorlar */}
-                  <View style={styles.lyricsBox}>
+                  <View style={[styles.lyricsBox, { backgroundColor: palette.bg }]}>
                     {transposedContent.split('\n').map((line: string, idx: number) => {
                       const isChord = isChordLine(line);
                       return (
@@ -1651,7 +1613,7 @@ export default function MorpheusWebPortal() {
                           style={[
                             styles.lyricsText,
                             { fontSize },
-                            isChord ? styles.chordLineText : styles.lyricLineText
+                            isChord ? [styles.chordLineText, { color: palette.chord }] : [styles.lyricLineText, { color: palette.lyric }]
                           ]}
                         >
                           {line || ' '}
@@ -1665,7 +1627,7 @@ export default function MorpheusWebPortal() {
                     style={styles.correctionBtn}
                     onPress={() => {
                       setCorrectionText(sanitizeSongContent(selectedSong.content || ''));
-                      setCorrectionModalVisible(true);
+                      openCenter('suggest');
                     }}
                   >
                     <Text style={styles.correctionBtnText}>✍️ Bu Parça İçin Düzeltme Önerisinde Bulun</Text>
@@ -1679,7 +1641,12 @@ export default function MorpheusWebPortal() {
             </View>
 
             {/* SAĞ: Kullanıcı Paneli & Reklamlar */}
-            <View style={styles.rightCol}>
+            <View style={[styles.rightCol, {
+              height: stageHeight,
+              maxHeight: stageHeight,
+              width: isMobile ? '100%' : (isTablet ? 240 : 300),
+              display: isMobile && mobileShelf !== 'account' ? 'none' : 'flex',
+            }]}>
               <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                 <View style={styles.memberPanel}>
                   <Text style={styles.memberPanelTitle}>KULLANICI PANELİ</Text>
@@ -1705,19 +1672,15 @@ export default function MorpheusWebPortal() {
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.memberLinkBtn} onPress={() => {
-                      if (isUserAdmin) {
-                        setAdminTab('add_song');
-                        setCurrentView('admin');
-                      } else {
-                        alert('Onaylı Parça Ekleme Formu kullanıcılar için hazırlanıyor.');
-                      }
+                      if (isUserAdmin) setAdminTab('add_song');
+                      openCenter('add_song');
                     }}>
                       <Text style={styles.memberLinkText}>➕ Yeni Parça Ekle</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Dahili Mesaj Kutusu')}>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => openCenter('inbox')}>
                       <Text style={styles.memberLinkText}>📩 Mesaj Kutusu</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => alert('Düzeltme önerileri listesi')}>
+                    <TouchableOpacity style={styles.memberLinkBtn} onPress={() => openCenter('my_corrections')}>
                       <Text style={styles.memberLinkText}>📝 Verdiğim Düzeltmeler</Text>
                     </TouchableOpacity>
 
@@ -1725,11 +1688,7 @@ export default function MorpheusWebPortal() {
                     {isUserAdmin && (
                       <TouchableOpacity
                         style={[styles.memberLinkBtn, { backgroundColor: '#8b5cf6' }]}
-                        onPress={() => {
-                          fetchCorrections();
-                          fetchAllProfiles();
-                          setCurrentView('admin');
-                        }}
+                        onPress={() => openCenter('admin')}
                       >
                         <Text style={[styles.memberLinkText, { color: '#ffffff', fontWeight: '700' }]}>⚙️ Master Admin Paneli</Text>
                       </TouchableOpacity>
@@ -1800,236 +1759,6 @@ export default function MorpheusWebPortal() {
             </View>
           </View>
         </View>
-      )}
-
-      {/* REPERTUVAR LİSTELERİ MODALI */}
-      <Modal visible={playlistModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalContent, { width: 560 }]}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>📁 Repertuvar & Çalma Listelerim</Text>
-              <TouchableOpacity onPress={() => setPlaylistModalVisible(false)}>
-                <Text style={styles.modalCloseIcon}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.newPlaylistRow}>
-              <TextInput
-                style={styles.playlistInput}
-                placeholder="Yeni liste adı (Örn: Akustik Bar Seti, 90'lar Rock)..."
-                placeholderTextColor="#64748b"
-                value={newPlaylistTitle}
-                onChangeText={setNewPlaylistTitle}
-              />
-              <TouchableOpacity
-                style={styles.createPlaylistBtn}
-                onPress={handleCreatePlaylist}
-                disabled={creatingPlaylist}
-              >
-                <Text style={styles.createPlaylistBtnText}>
-                  {creatingPlaylist ? '...' : '+ Oluştur'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{ maxHeight: 320, marginTop: 12 }}>
-              {playlists.length === 0 ? (
-                <View style={styles.emptyListBox}>
-                  <Text style={styles.emptyListText}>Henüz kayıtlı bir repertuvar listeniz yok. Yukarıdan oluşturabilirsiniz.</Text>
-                </View>
-              ) : (
-                playlists.map((pl) => (
-                  <View key={pl.id} style={styles.playlistItemCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.playlistItemTitle}>{pl.title}</Text>
-                      <Text style={styles.playlistItemSub}>{pl.song_count || 0} Parça</Text>
-                    </View>
-                    <View style={styles.playlistItemActions}>
-                      <TouchableOpacity
-                        style={styles.playlistOpenBtn}
-                        onPress={() => handleLoadPlaylistToStage(pl)}
-                      >
-                        <Text style={styles.playlistOpenBtnText}>Sahneye Yükle ➔</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.playlistDeleteBtn}
-                        onPress={() => handleDeletePlaylist(pl)}
-                      >
-                        <Text style={styles.playlistDeleteBtnText}>🗑</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ŞARKIYI LİSTEYE EKLEME MODALI */}
-      <Modal visible={addToListModalVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalContent, { width: 440 }]}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>📑 Repertuvara Parça Ekle</Text>
-              <TouchableOpacity onPress={() => setAddToListModalVisible(false)}>
-                <Text style={styles.modalCloseIcon}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.modalSubtitle}>{selectedSong?.title} - {selectedSong?.artist}</Text>
-
-            <Text style={styles.label}>Hangi repertuvar listenize eklemek istiyorsunuz?</Text>
-
-            <ScrollView style={{ maxHeight: 220, marginVertical: 10 }}>
-              {playlists.length === 0 ? (
-                <View style={styles.emptyListBox}>
-                  <Text style={styles.emptyListText}>Henüz bir repertuvar listeniz yok.</Text>
-                  <TouchableOpacity
-                    style={[styles.createPlaylistBtn, { marginTop: 10, paddingVertical: 8 }]}
-                    onPress={() => {
-                      setAddToListModalVisible(false);
-                      openPlaylistModal();
-                    }}
-                  >
-                    <Text style={styles.createPlaylistBtnText}>+ Liste Oluştur</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                playlists.map((pl) => (
-                  <TouchableOpacity
-                    key={pl.id}
-                    style={styles.playlistSelectOption}
-                    onPress={() => handleAddSongToPlaylist(pl.id)}
-                  >
-                    <Text style={styles.playlistSelectText}>📁 {pl.title}</Text>
-                    <Text style={styles.playlistSelectPlus}>+ Ekle</Text>
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
-
-            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setAddToListModalVisible(false)}>
-              <Text style={[styles.modalCancelText, { textAlign: 'center' }]}>Kapat</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* AI ARANJE ET MODALI */}
-      <Modal visible={aiModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalContent, { width: 620, maxHeight: '90%' }]}>
-            <Text style={styles.modalTitle}>⚡ Gemini AI Reharmonization</Text>
-            <Text style={styles.modalSubtitle}>{selectedSong?.title} - {selectedSong?.artist}</Text>
-
-            <Text style={styles.label}>Aranje Edilecek Müzik Tarzı:</Text>
-            <View style={styles.styleSelectorRow}>
-              {(
-                [
-                  { id: 'jazz', label: '🎷 Jazz / Neo-Soul' },
-                  { id: 'bossa', label: '🏖️ Bossa Nova' },
-                  { id: 'lofi', label: '☕ Lo-Fi / Akustik' },
-                  { id: 'rock_ballad', label: '🎸 Rock Ballad' },
-                ] as const
-              ).map((st) => (
-                <TouchableOpacity
-                  key={st.id}
-                  style={[styles.styleChip, selectedStyle === st.id && styles.activeStyleChip]}
-                  onPress={() => setSelectedStyle(st.id)}
-                >
-                  <Text style={[styles.styleChipText, selectedStyle === st.id && styles.activeStyleChipText]}>
-                    {st.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {aiLoading ? (
-              <View style={styles.aiLoadingBox}>
-                <ActivityIndicator size="large" color="#8b5cf6" />
-                <Text style={styles.aiLoadingText}>Gemini armoni motoru akorları yeniden yazıyor...</Text>
-              </View>
-            ) : aiResult ? (
-              <View style={styles.aiResultWrapper}>
-                <Text style={styles.aiNotesText}>💡 {aiResult.notes}</Text>
-                <ScrollView style={styles.aiPreviewBox}>
-                  <Text style={styles.aiPreviewContent}>{aiResult.content}</Text>
-                </ScrollView>
-              </View>
-            ) : (
-              <Text style={styles.aiPromptInfo}>
-                Seçtiğiniz tarza uygun olarak şarkının melodisi korunacak, akorlar zenginleştirilecektir.
-              </Text>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => {
-                  setAiModalVisible(false);
-                  setAiResult(null);
-                }}
-              >
-                <Text style={styles.modalCancelText}>Kapat</Text>
-              </TouchableOpacity>
-
-              {aiResult ? (
-                <TouchableOpacity
-                  style={[styles.modalSubmitBtn, { backgroundColor: '#10b981' }]}
-                  onPress={applyAiArrangement}
-                >
-                  <Text style={styles.modalSubmitText}>Sahneye Uygula</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.modalSubmitBtn, { backgroundColor: '#8b5cf6' }]}
-                  onPress={handleRunAiArrangement}
-                  disabled={aiLoading}
-                >
-                  <Text style={styles.modalSubmitText}>Aranje Üret</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* DÜZELTME MODALI */}
-      <Modal visible={correctionModalVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Şarkı İçin Düzeltme Öner</Text>
-            <Text style={styles.modalSubtitle}>{selectedSong?.title} - {selectedSong?.artist}</Text>
-
-            <Text style={styles.label}>Önerilen Şarkı Sözü ve Akor Formatı:</Text>
-            <TextInput
-              style={styles.modalTextInput}
-              multiline
-              numberOfLines={10}
-              value={correctionText}
-              onChangeText={setCorrectionText}
-            />
-
-            <Text style={styles.label}>Ek Notunuz:</Text>
-            <TextInput
-              style={styles.modalNoteInput}
-              placeholder="Örn: Nakarat kısmındaki Dm basımı aslında F olmalı..."
-              placeholderTextColor="#64748b"
-              value={correctionNote}
-              onChangeText={setCorrectionNote}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setCorrectionModalVisible(false)}>
-                <Text style={styles.modalCancelText}>Vazgeç</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalSubmitBtn} onPress={submitCorrection} disabled={savingCorrection}>
-                <Text style={styles.modalSubmitText}>{savingCorrection ? 'Gönderiliyor...' : 'Öneriyi Gönder'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* GİRİŞ & KAYIT MODALI (AUTH MODAL) */}
       {activeModal === 'auth' && (
@@ -2039,6 +1768,8 @@ export default function MorpheusWebPortal() {
           onSuccess={() => {
             fetchSession();
             setActiveModal(null);
+            setCenterPane('profile');
+            setMobileShelf('stage');
           }}
         />
       )}
@@ -2100,31 +1831,51 @@ export default function MorpheusWebPortal() {
           onClose={() => setActiveModal(null)}
         />
       )}
-      {activeModal === 'profile' && (
-        <ProfileModal
-          visible={true}
-          email={user?.email}
-          fullName={profile?.full_name}
-          membershipTier={profile?.membership_tier}
-          isAdmin={isUserAdmin}
-          playlistCount={playlists.length}
-          onClose={() => setActiveModal(null)}
-          onLogout={handleLogout}
-          onOpenPlaylists={openPlaylistModal}
-        />
-      )}
       <InfoModal
         visible={!!infoPageId}
         pageId={infoPageId}
         onClose={closeInfoPage}
       />
     </ScrollView>
+    {isMobile && (
+      <View style={styles.bottomBar}>
+        <TouchableOpacity style={styles.bottomItem} onPress={() => setMobileShelf('library')}>
+          <Text style={[styles.bottomItemText, mobileShelf === 'library' && styles.bottomItemOn]}>Kütüphane</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomItem} onPress={() => { setMobileShelf('stage'); setCenterPane('song'); }}>
+          <Text style={[styles.bottomItemText, mobileShelf === 'stage' && centerPane === 'song' && styles.bottomItemOn]}>Sahne</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomItem} onPress={() => openCenter('playlists')}>
+          <Text style={[styles.bottomItemText, centerPane === 'playlists' && styles.bottomItemOn]}>Listeler</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomItem} onPress={openProfile}>
+          <Text style={[styles.bottomItemText, centerPane === 'profile' && styles.bottomItemOn]}>Profil</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.bottomItem} onPress={() => setMobileShelf('account')}>
+          <Text style={[styles.bottomItemText, mobileShelf === 'account' && styles.bottomItemOn]}>Hesap</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeShell: { flex: 1, backgroundColor: '#090d16' },
   outerScroll: { flex: 1, backgroundColor: '#090d16' },
   outerScrollContent: { flexGrow: 1 },
+  bottomBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
+    backgroundColor: '#0f172a',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    ...({ paddingBottom: Platform.OS === 'ios' ? 8 : 8 } as object),
+  },
+  bottomItem: { flex: 1, alignItems: 'center', paddingVertical: 6 },
+  bottomItemText: { color: '#64748b', fontSize: 10, fontWeight: '700' },
+  bottomItemOn: { color: '#38bdf8' },
   topNav: {
     height: 52,
     backgroundColor: '#0f172a',
@@ -2267,15 +2018,15 @@ const styles = StyleSheet.create({
   activeAlphaCharText: { color: '#ffffff' },
 
   // 3 KOLONLU GÖVDE
-  mainGrid: { flexDirection: 'row', minHeight: 1100, height: 1100 },
+  mainGrid: { flexDirection: 'row', width: '100%' },
   leftCol: { 
     width: 280, 
-    height: 1100,
     borderRightWidth: 1, 
     borderRightColor: '#1e293b', 
     backgroundColor: '#090d16', 
     display: 'flex' as any, 
-    flexDirection: 'column' 
+    flexDirection: 'column',
+    overflow: 'hidden' as any,
   },
   colHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   colHeaderText: { color: '#f8fafc', fontWeight: '700', fontSize: 12 },
@@ -2288,7 +2039,7 @@ const styles = StyleSheet.create({
   keyTag: { color: '#38bdf8', fontWeight: '700', fontSize: 11 },
   textWhite: { color: '#ffffff' },
   
-  centerCol: { flex: 1, height: 1100, backgroundColor: '#070a12', display: 'flex' as any },
+  centerCol: { flex: 1, backgroundColor: '#070a12', display: 'flex' as any, overflow: 'hidden' as any },
   songViewWrapper: { flex: 1, padding: 16 },
   actionHeaderRow: { flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' },
   actionBtnAI: { backgroundColor: '#8b5cf6', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
@@ -2391,7 +2142,7 @@ const styles = StyleSheet.create({
   emptyCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyCenterText: { color: '#475569', fontSize: 13 },
   
-  rightCol: { width: 300, height: 1100, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b' },
+  rightCol: { width: 300, padding: 12, backgroundColor: '#090d16', borderLeftWidth: 1, borderLeftColor: '#1e293b', overflow: 'hidden' as any },
   memberPanel: { backgroundColor: '#0f172a', padding: 12, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b' },
   memberPanelTitle: { color: '#38bdf8', fontSize: 11, fontWeight: '700', marginBottom: 8 },
   memberCard: { marginBottom: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
@@ -2432,7 +2183,7 @@ const styles = StyleSheet.create({
 
   // 4 KOLONLU FOOTER
   richFooter: { backgroundColor: '#060911', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 32, paddingBottom: 20 },
-  footerInner: { flexDirection: 'row', justifyContent: 'space-between', maxWidth: 1200, marginHorizontal: 'auto', paddingHorizontal: 20, width: '100%', gap: 20 },
+  footerInner: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', maxWidth: 1200, marginHorizontal: 'auto', paddingHorizontal: 20, width: '100%', gap: 20 },
   footerCol: { flex: 1 },
   footerColTitle: { color: '#38bdf8', fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 12 },
   footerLink: { color: '#94a3b8', fontSize: 11, marginBottom: 8 },

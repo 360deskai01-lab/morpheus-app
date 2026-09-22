@@ -8,6 +8,10 @@ export interface UserProfile {
   email: string;
   full_name?: string;
   phone?: string;
+  avatar_url?: string | null;
+  stage_badge?: string | null;
+  chord_palette?: string | null;
+  cloud_backup_at?: string | null;
   membership_tier: 'FREE' | 'BASIC' | 'PREMIUM';
   is_master_admin: boolean;
   created_at?: string;
@@ -61,6 +65,53 @@ export async function registerUser(email: string, pass: string, fullName: string
   }
 
   return data.user;
+}
+
+function normalizeDisplayName(name: string): string {
+  return name.replace(/\s+/g, ' ').trim();
+}
+
+export async function isDisplayNameTaken(name: string, excludeProfileId: string): Promise<boolean> {
+  const clean = normalizeDisplayName(name);
+  if (!clean) return false;
+
+  const { data: rpcTaken, error: rpcError } = await supabase.rpc('morfeus_is_display_name_taken', {
+    p_name: clean,
+    p_exclude: excludeProfileId,
+  });
+
+  if (!rpcError && typeof rpcTaken === 'boolean') {
+    return rpcTaken;
+  }
+
+  const { data, error } = await supabase
+    .from('morfeus_profiles')
+    .select('id, full_name')
+    .neq('id', excludeProfileId);
+
+  if (error) throw error;
+  if (!data) return false;
+  const needle = clean.toLocaleLowerCase('tr-TR');
+  return data.some((row) => (row.full_name || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr-TR') === needle);
+}
+
+export type ProfilePatch = {
+  full_name?: string;
+  phone?: string | null;
+  avatar_url?: string | null;
+  stage_badge?: string | null;
+  chord_palette?: string | null;
+  cloud_backup_at?: string | null;
+};
+
+export async function updateOwnProfile(userId: string, patch: ProfilePatch): Promise<void> {
+  const { error } = await supabase.from('morfeus_profiles').update(patch).eq('id', userId);
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error('Bu görünen ad başka bir profilde kayıtlı. Lütfen farklı bir isim seçin.');
+    }
+    throw error;
+  }
 }
 
 export async function getCurrentUserProfile(userId: string): Promise<UserProfile | null> {

@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import MorpheusWebPortal from './src/components/MorpheusWebPortal';
 import { fetchSharedSongByCode } from './src/services/shareService';
 
@@ -38,6 +39,7 @@ export default function App() {
   };
 
   return (
+    <SafeAreaProvider>
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#090d16" />
       
@@ -97,6 +99,7 @@ export default function App() {
         </View>
       </Modal>
     </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
