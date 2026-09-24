@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { CenterPane } from '../../utils/membership';
+import { isHubPane } from '../../utils/membership';
 
 type Tab = { id: CenterPane; label: string; adminOnly?: boolean; authOnly?: boolean };
 
@@ -14,6 +15,14 @@ const TABS: Tab[] = [
   { id: 'admin', label: 'Yönetim', adminOnly: true },
 ];
 
+const HUB_TABS: Tab[] = [
+  { id: 'forum', label: 'Forum' },
+  { id: 'events', label: 'Etkinlikler' },
+  { id: 'courses', label: 'Eğitimler' },
+  { id: 'store', label: 'Mağaza' },
+  { id: 'help', label: 'Yardım' },
+];
+
 interface Props {
   active: CenterPane;
   loggedIn: boolean;
@@ -25,8 +34,8 @@ export default function CenterTabs({ active, loggedIn, isAdmin, onChange }: Prop
   return (
     <View style={styles.wrap}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-        {TABS.filter((tab) => (!tab.authOnly || loggedIn) && (!tab.adminOnly || isAdmin)).map((tab) => {
-          const on = active === tab.id || (tab.id === 'song' && (active === 'ai' || active === 'suggest' || active === 'add_to_list'));
+        {TABS.concat(HUB_TABS.filter((tab) => tab.id === active)).filter((tab) => (!tab.authOnly || loggedIn) && (!tab.adminOnly || isAdmin)).map((tab) => {
+          const on = active === tab.id || (tab.id === 'song' && (active === 'ai' || active === 'suggest' || active === 'add_to_list') && !isHubPane(active));
           return (
             <TouchableOpacity
               key={tab.id}

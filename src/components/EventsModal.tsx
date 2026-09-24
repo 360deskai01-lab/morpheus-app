@@ -5,12 +5,12 @@ import {
   Text,
   View,
   TouchableOpacity,
-  Modal,
   ScrollView,
   TextInput,
   ActivityIndicator,
   Linking,
 } from 'react-native';
+import ModuleFrame, { type ModulePresentation } from './portal/ModuleFrame';
 import {
   X,
   Calendar,
@@ -29,11 +29,13 @@ interface Props {
   onClose: () => void;
   currentUser: UserProfile | null;
   onOpenAuth: () => void;
+  presentation?: ModulePresentation;
+  onExpand?: () => void;
 }
 
 const CITIES = ['Tümü', 'İstanbul', 'Ankara', 'İzmir', 'Bursa', 'Antalya', 'Eskişehir'];
 
-export default function EventsModal({ visible, onClose, currentUser, onOpenAuth }: Props) {
+export default function EventsModal({ visible, onClose, currentUser, onOpenAuth, presentation = 'modal', onExpand }: Props) {
   const [events, setEvents] = useState<MorpheusEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedCity, setSelectedCity] = useState('Tümü');
@@ -50,13 +52,15 @@ export default function EventsModal({ visible, onClose, currentUser, onOpenAuth 
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formSuccess, setFormSuccess] = useState(false);
 
+  const isActive = visible || presentation === 'stage';
+
   useEffect(() => {
-    if (visible) {
+    if (isActive) {
       loadEvents();
       setIsFormOpen(false);
       setFormSuccess(false);
     }
-  }, [visible]);
+  }, [isActive]);
 
   const loadEvents = async () => {
     setLoading(true);
@@ -107,9 +111,7 @@ export default function EventsModal({ visible, onClose, currentUser, onOpenAuth 
   });
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.modalCard}>
+    <ModuleFrame visible={visible} presentation={presentation} onClose={onClose} onExpand={onExpand} cardStyle={styles.modalCard}>
           {/* HEADER */}
           <View style={styles.header}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -136,7 +138,11 @@ export default function EventsModal({ visible, onClose, currentUser, onOpenAuth 
               </TouchableOpacity>
 
               <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                <X color="#94A3B8" size={18} />
+                {presentation === 'stage' ? (
+                  <Text style={styles.stageBackText}>Sahneye Dön</Text>
+                ) : (
+                  <X color="#94A3B8" size={18} />
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -338,15 +344,13 @@ export default function EventsModal({ visible, onClose, currentUser, onOpenAuth 
               )}
             </View>
           )}
-        </View>
-      </View>
-    </Modal>
+    </ModuleFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-  modalCard: { width: '100%', maxWidth: 840, height: 560, backgroundColor: '#0F172A', borderRadius: 12, borderWidth: 1, borderColor: '#1E293B', overflow: 'hidden' },
+  modalCard: { height: 560 },
+  stageBackText: { color: '#38BDF8', fontSize: 11, fontWeight: '800' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#161F30', borderBottomWidth: 1, borderBottomColor: '#1E293B' },
   headerTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold' },
   closeBtn: { padding: 4 },

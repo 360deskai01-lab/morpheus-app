@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { X, Volume2, VolumeX } from 'lucide-react-native';
+import { createSineWavUri } from '../utils/referenceTone';
 
 interface TunerModalProps {
   visible: boolean;
@@ -33,57 +34,43 @@ const GUITAR_STRINGS: StringFrequency[] = [
 
 export default function TunerModal({ visible, onClose }: TunerModalProps) {
   const [activeNote, setActiveNote] = useState<string | null>(null);
-  const audioContextRef = useRef<any>(null);
-  const oscillatorRef = useRef<any>(null);
+  const playerRef = useRef<any>(null);
 
-  const stopOscillator = () => {
+  const stopOscillator = async () => {
     try {
-      if (oscillatorRef.current) {
-        oscillatorRef.current.stop();
-        oscillatorRef.current.disconnect();
-        oscillatorRef.current = null;
-      }
-    } catch (e) {
+      playerRef.current?.pause?.();
+      playerRef.current?.remove?.();
+      playerRef.current?.release?.();
+    } catch {
       // osilatör zaten durmuşsa yok say
     }
+    playerRef.current = null;
     setActiveNote(null);
   };
 
-  const playReferenceTone = (str: StringFrequency) => {
+  const playReferenceTone = async (str: StringFrequency) => {
+    if (Platform.OS === 'web') return;
     if (activeNote === str.octave) {
-      stopOscillator();
+      await stopOscillator();
       return;
     }
 
-    stopOscillator();
+    await stopOscillator();
 
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      try {
-        const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
-        if (!audioContextRef.current) {
-          audioContextRef.current = new AudioCtx();
-        }
-        if (audioContextRef.current.state === 'suspended') {
-          audioContextRef.current.resume();
-        }
-
-        const osc = audioContextRef.current.createOscillator();
-        const gain = audioContextRef.current.createGain();
-
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(str.freq, audioContextRef.current.currentTime);
-
-        gain.gain.setValueAtTime(0.2, audioContextRef.current.currentTime);
-        osc.connect(gain);
-        gain.connect(audioContextRef.current.destination);
-
-        osc.start();
-        oscillatorRef.current = osc;
-        setActiveNote(str.octave);
-      } catch (err) {
-        console.warn('Web ses hatası:', err);
-      }
-    } else {
+    try {
+      const audio = await import('expo-audio');
+      await audio.setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        interruptionMode: 'duckOthers',
+      });
+      const player = audio.createAudioPlayer({ uri: createSineWavUri(str.freq) });
+      player.loop = true;
+      player.play();
+      playerRef.current = player;
+      setActiveNote(str.octave);
+    } catch (err) {
+      console.warn('Referans osilatör hatası:', err);
       setActiveNote(str.octave);
     }
   };
@@ -93,6 +80,8 @@ export default function TunerModal({ visible, onClose }: TunerModalProps) {
     onClose();
   };
 
+  if (Platform.OS === 'web') return null;
+
   return (
     <Modal visible={visible} animationType="fade" transparent>
       <View style={styles.backdrop}>
@@ -100,7 +89,7 @@ export default function TunerModal({ visible, onClose }: TunerModalProps) {
           <View style={styles.header}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Volume2 color="#10B981" size={20} />
-              <Text style={styles.title}>Referans Frekans Akort Aleti</Text>
+              <Text style={styles.title}>Sahne Modu · Referans Akort</Text>
             </View>
             <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
               <X color="#94A3B8" size={20} />
@@ -108,7 +97,7 @@ export default function TunerModal({ visible, onClose }: TunerModalProps) {
           </View>
 
           <Text style={styles.subtitle}>
-            Mikrofon paraziti olmadan, referans teli seçerek kulağınızla veya pedalınızla eşleyin:
+            Standard E akort referans osilatörleri. Teli seçin, frekansı kulağınızla veya pedalınızla eşleyin.
           </Text>
 
           <View style={styles.stringsGrid}>
@@ -127,7 +116,7 @@ export default function TunerModal({ visible, onClose }: TunerModalProps) {
                     <Text style={[styles.noteName, isPlaying && styles.stringTextActive]}>
                       {item.note}
                     </Text>
-                    <Text style={styles.freqText}>{item.freq} Hz</Text>
+                    <Text style={styles.freqText}>{item.freq.toFixed(2)} Hz</Text>
                   </View>
                   {isPlaying ? (
                     <VolumeX color="#000000" size={18} />

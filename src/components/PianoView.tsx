@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 
-// --- PİYANO BİLEŞENİ (Minimalist: 19px tuş genişliği, 42px yükseklik) ---
+// --- PİYANO BİLEŞENİ (10px tuş, 70px klavye — önceki genişliğin yarısı) ---
 interface PianoViewProps {
   activePitches: number[]; // 0: C, 1: C#, 2: D ... 11: B
   chordName?: string;
@@ -18,13 +18,12 @@ export const PianoView: React.FC<PianoViewProps> = ({ activePitches = [], chordN
     { pitch: 11, label: 'B' },
   ];
 
-  // 19px genişliğe göre hizalı siyah tuşlar
   const blackKeys = [
-    { pitch: 1, left: 13 },
-    { pitch: 3, left: 32 },
-    { pitch: 6, left: 70 },
-    { pitch: 8, left: 89 },
-    { pitch: 10, left: 108 },
+    { pitch: 1, left: 7 },
+    { pitch: 3, left: 17 },
+    { pitch: 6, left: 37 },
+    { pitch: 8, left: 47 },
+    { pitch: 10, left: 57 },
   ];
 
   return (
@@ -142,7 +141,7 @@ const styles = StyleSheet.create({
   // Minimalist Piyano
   pianoContainer: {
     alignItems: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
   chordTitle: {
     color: '#38bdf8',
@@ -155,15 +154,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     position: 'relative',
     height: 42,
-    width: 133, // 7 tuş * 19px
+    width: 70,
     backgroundColor: '#090d16',
-    borderRadius: 3,
+    borderRadius: 2,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#334155',
   },
   whiteKey: {
-    width: 19,
+    width: 10,
     height: '100%',
     backgroundColor: '#f8fafc',
     borderRightWidth: 1,
@@ -176,23 +175,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#7dd3fc',
   },
   whiteActiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: '#0284c7',
   },
   blackKey: {
     position: 'absolute',
     top: 0,
-    width: 13,
-    height: 26,
+    width: 7,
+    height: 24,
     backgroundColor: '#0f172a',
     zIndex: 10,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
+    borderBottomLeftRadius: 1,
+    borderBottomRightRadius: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 2,
+    paddingBottom: 1,
     borderWidth: 0.5,
     borderColor: '#000000',
   },
@@ -200,9 +199,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0284c7',
   },
   blackActiveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
     backgroundColor: '#ffffff',
   },
 

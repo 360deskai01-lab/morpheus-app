@@ -8,7 +8,18 @@ export type CenterPane =
   | 'my_corrections'
   | 'admin'
   | 'ai'
-  | 'suggest';
+  | 'suggest'
+  | 'forum'
+  | 'events'
+  | 'courses'
+  | 'store'
+  | 'help';
+
+export const HUB_PANES: CenterPane[] = ['forum', 'events', 'courses', 'store', 'help'];
+
+export function isHubPane(pane: CenterPane): boolean {
+  return HUB_PANES.includes(pane);
+}
 
 export type MobileShelf = 'library' | 'stage' | 'account';
 
@@ -35,7 +46,7 @@ export const STAGE_BADGES = [
 ] as const;
 
 export const CHORD_PALETTES = {
-  classic: { id: 'classic', label: 'Klasik Sahne', chord: '#38BDF8', lyric: '#CBD5E1', bg: '#05080E' },
+  classic: { id: 'classic', label: 'Klasik Sahne', chord: '#FFC107', lyric: '#CBD5E1', bg: '#05080E' },
   jazz: { id: 'jazz', label: 'Jazz Gece', chord: '#C084FC', lyric: '#F8FAFC', bg: '#12081A' },
   night: { id: 'night', label: 'Amber Night', chord: '#FBBF24', lyric: '#E2E8F0', bg: '#0A0A0A' },
   stage: { id: 'stage', label: 'Sahne Yeşili', chord: '#34D399', lyric: '#F1F5F9', bg: '#052E1C' },

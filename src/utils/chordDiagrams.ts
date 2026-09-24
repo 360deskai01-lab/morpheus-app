@@ -1,326 +1,306 @@
-// src/utils/chordDiagrams.ts
+export type FretDiagram = { frets: number[]; baseFret: number };
 
-export interface ChordVoicing {
-  baseFret: number;
-  frets: number[]; // [6. Tel (Kalın E), 5. Tel (A), 4. Tel (D), 3. Tel (G), 2. Tel (B), 1. Tel (İnce e)]
-                   // -1: Çalınmaz (X), 0: Boş Tel (O), 1..n: Perde Numarası
-  label?: string;
-}
-
-export const GUITAR_CHORDS_DB: Record<string, ChordVoicing[]> = {
-  // ================= A GRUBU =================
-  'A': [
-    { baseFret: 1, frets: [-1, 0, 2, 2, 2, 0], label: 'Açık Pozisyon' },
-    { baseFret: 5, frets: [5, 7, 7, 6, 5, 5], label: 'Bareli (5. Perde)' },
-  ],
-  'Am': [
-    { baseFret: 1, frets: [-1, 0, 2, 2, 1, 0], label: 'Açık Pozisyon' },
-    { baseFret: 5, frets: [5, 7, 7, 5, 5, 5], label: 'Bareli (5. Perde)' },
-  ],
-  'A7': [
-    { baseFret: 1, frets: [-1, 0, 2, 0, 2, 0], label: 'Açık 7li' },
-    { baseFret: 5, frets: [5, 7, 5, 6, 5, 5], label: 'Bareli 7li' },
-  ],
-  'Am7': [
-    { baseFret: 1, frets: [-1, 0, 2, 0, 1, 0], label: 'Açık m7' },
-    { baseFret: 5, frets: [5, 7, 5, 5, 5, 5], label: 'Bareli m7' },
-  ],
-  'Amaj7': [
-    { baseFret: 1, frets: [-1, 0, 2, 1, 2, 0], label: 'Açık Maj7' },
-    { baseFret: 5, frets: [5, -1, 6, 6, 5, -1], label: 'Caz Drop-2' },
-  ],
-  'Am7(b5)': [
-    { baseFret: 1, frets: [-1, 0, 1, 2, 1, -1], label: 'Açık Yarı Eksilmiş' },
-    { baseFret: 5, frets: [5, -1, 5, 5, 4, -1], label: 'Kök 6. Tel m7b5' },
-  ],
-  'Am7b5': [
-    { baseFret: 1, frets: [-1, 0, 1, 2, 1, -1], label: 'Açık Yarı Eksilmiş' },
-    { baseFret: 5, frets: [5, -1, 5, 5, 4, -1], label: 'Kök 6. Tel m7b5' },
-  ],
-  'Asus4': [{ baseFret: 1, frets: [-1, 0, 2, 2, 3, 0], label: 'Açık Sus4' }],
-  'Asus2': [{ baseFret: 1, frets: [-1, 0, 2, 2, 0, 0], label: 'Açık Sus2' }],
-  'Aadd9': [{ baseFret: 1, frets: [-1, 0, 2, 4, 2, 0], label: 'Açık Add9' }],
-  'Adim': [{ baseFret: 1, frets: [-1, 0, 1, 2, 1, -1], label: 'Eksilmiş' }],
-
-  // ================= B / Bb GRUBU =================
-  'B': [
-    { baseFret: 2, frets: [-1, 2, 4, 4, 4, 2], label: 'Bareli (2. Perde)' },
-    { baseFret: 7, frets: [7, 9, 9, 8, 7, 7], label: 'Bareli (7. Perde)' },
-  ],
-  'Bm': [
-    { baseFret: 2, frets: [-1, 2, 4, 4, 3, 2], label: 'Bareli (2. Perde)' },
-    { baseFret: 7, frets: [7, 9, 9, 7, 7, 7], label: 'Bareli (7. Perde)' },
-  ],
-  'B7': [
-    { baseFret: 1, frets: [-1, 2, 1, 2, 0, 2], label: 'Açık 7li' },
-    { baseFret: 2, frets: [-1, 2, 4, 2, 4, 2], label: 'Bareli 7li' },
-  ],
-  'Bm7': [
-    { baseFret: 2, frets: [-1, 2, 4, 2, 3, 2], label: 'Bareli m7 (2. Perde)' },
-    { baseFret: 7, frets: [7, 9, 7, 7, 7, 7], label: 'Bareli m7 (7. Perde)' },
-    { baseFret: 1, frets: [-1, 2, 0, 2, 0, 2], label: 'Açık m7' },
-  ],
-  'Bmaj7': [
-    { baseFret: 2, frets: [-1, 2, 4, 3, 4, 2], label: 'Bareli Maj7' },
-    { baseFret: 7, frets: [7, -1, 8, 8, 7, -1], label: 'Caz Drop-2' },
-  ],
-  'Bm7(b5)': [
-    { baseFret: 1, frets: [-1, 2, 3, 2, 3, -1], label: 'Kök 5. Tel m7b5' },
-    { baseFret: 7, frets: [7, -1, 7, 7, 6, -1], label: 'Kök 6. Tel m7b5' },
-  ],
-  'Bm7b5': [
-    { baseFret: 1, frets: [-1, 2, 3, 2, 3, -1], label: 'Kök 5. Tel m7b5' },
-  ],
-  'Bb': [
-    { baseFret: 1, frets: [-1, 1, 3, 3, 3, 1], label: 'Bareli (1. Perde)' },
-    { baseFret: 6, frets: [6, 8, 8, 7, 6, 6], label: 'Bareli (6. Perde)' },
-  ],
-  'Bbm': [
-    { baseFret: 1, frets: [-1, 1, 3, 3, 2, 1], label: 'Bareli (1. Perde)' },
-    { baseFret: 6, frets: [6, 8, 8, 6, 6, 6], label: 'Bareli (6. Perde)' },
-  ],
-  'Bb7': [
-    { baseFret: 1, frets: [-1, 1, 3, 1, 3, 1], label: 'Bareli 7li' },
-    { baseFret: 6, frets: [6, 8, 6, 7, 6, 6], label: 'Bareli 7li' },
-  ],
-  'Bbm7': [
-    { baseFret: 1, frets: [-1, 1, 3, 1, 2, 1], label: 'Bareli m7' },
-  ],
-  'Bbmaj7': [
-    { baseFret: 1, frets: [-1, 1, 3, 2, 3, 1], label: 'Kök 5. Tel Maj7' },
-    { baseFret: 6, frets: [6, -1, 7, 7, 6, -1], label: 'Caz Drop-2' },
-  ],
-
-  // ================= C / C# GRUBU =================
-  'C': [
-    { baseFret: 1, frets: [-1, 3, 2, 0, 1, 0], label: 'Açık Pozisyon' },
-    { baseFret: 3, frets: [-1, 3, 5, 5, 5, 3], label: 'Bareli (3. Perde)' },
-    { baseFret: 8, frets: [8, 10, 10, 9, 8, 8], label: 'Bareli (8. Perde)' },
-  ],
-  'Cm': [
-    { baseFret: 3, frets: [-1, 3, 5, 5, 4, 3], label: 'Bareli (3. Perde)' },
-    { baseFret: 8, frets: [8, 10, 10, 8, 8, 8], label: 'Bareli (8. Perde)' },
-  ],
-  'C7': [
-    { baseFret: 1, frets: [-1, 3, 2, 3, 1, 0], label: 'Açık 7li' },
-    { baseFret: 3, frets: [-1, 3, 5, 3, 5, 3], label: 'Bareli 7li' },
-  ],
-  'Cm7': [
-    { baseFret: 3, frets: [-1, 3, 5, 3, 4, 3], label: 'Bareli m7' },
-    { baseFret: 8, frets: [8, 10, 8, 8, 8, 8], label: 'Bareli m7' },
-  ],
-  'Cmaj7': [
-    { baseFret: 1, frets: [-1, 3, 2, 0, 0, 0], label: 'Açık Maj7' },
-    { baseFret: 3, frets: [-1, 3, 5, 4, 5, 3], label: 'Bareli Maj7' },
-  ],
-  'Cadd9': [{ baseFret: 1, frets: [-1, 3, 2, 0, 3, 0], label: 'Açık Add9' }],
-  'Csus4': [{ baseFret: 1, frets: [-1, 3, 3, 0, 1, 0], label: 'Açık Sus4' }],
-  'C/B': [
-    { baseFret: 1, frets: [-1, 2, 2, 0, 1, 0], label: 'Bas B Yürüyüşü' },
-    { baseFret: 1, frets: [-1, 2, 0, 0, 1, 0], label: 'Cadd9/B' },
-  ],
-  'C#': [{ baseFret: 4, frets: [-1, 4, 6, 6, 6, 4], label: 'Bareli (4. Perde)' }],
-  'C#m': [{ baseFret: 4, frets: [-1, 4, 6, 6, 5, 4], label: 'Bareli (4. Perde)' }],
-  'C#7': [{ baseFret: 4, frets: [-1, 4, 6, 4, 6, 4], label: 'Bareli 7li' }],
-  'C#m7': [{ baseFret: 4, frets: [-1, 4, 6, 4, 5, 4], label: 'Bareli m7' }],
-
-  // ================= D / D# / Eb GRUBU =================
-  'D': [
-    { baseFret: 1, frets: [-1, -1, 0, 2, 3, 2], label: 'Açık Pozisyon' },
-    { baseFret: 5, frets: [-1, 5, 7, 7, 7, 5], label: 'Bareli (5. Perde)' },
-  ],
-  'Dm': [
-    { baseFret: 1, frets: [-1, -1, 0, 2, 3, 1], label: 'Açık Pozisyon' },
-    { baseFret: 5, frets: [-1, 5, 7, 7, 6, 5], label: 'Bareli (5. Perde)' },
-  ],
-  'D7': [
-    { baseFret: 1, frets: [-1, -1, 0, 2, 1, 2], label: 'Açık 7li' },
-    { baseFret: 5, frets: [-1, 5, 7, 5, 7, 5], label: 'Bareli 7li' },
-  ],
-  'Dm7': [
-    { baseFret: 1, frets: [-1, -1, 0, 2, 1, 1], label: 'Açık m7' },
-    { baseFret: 5, frets: [-1, 5, 7, 5, 6, 5], label: 'Bareli m7' },
-  ],
-  'Dmaj7': [{ baseFret: 1, frets: [-1, -1, 0, 2, 2, 2], label: 'Açık Maj7' }],
-  'Dsus4': [{ baseFret: 1, frets: [-1, -1, 0, 2, 3, 3], label: 'Açık Sus4' }],
-  'Dsus2': [{ baseFret: 1, frets: [-1, -1, 0, 2, 3, 0], label: 'Açık Sus2' }],
-  'Eb': [{ baseFret: 6, frets: [-1, 6, 8, 8, 8, 6], label: 'Bareli (6. Perde)' }],
-  'Ebm': [{ baseFret: 6, frets: [-1, 6, 8, 8, 7, 6], label: 'Bareli (6. Perde)' }],
-  'Eb7': [{ baseFret: 6, frets: [-1, 6, 8, 6, 8, 6], label: 'Bareli 7li' }],
-  'Ebmaj7': [{ baseFret: 6, frets: [-1, 6, 8, 7, 8, 6], label: 'Bareli Maj7' }],
-
-  // ================= E GRUBU =================
-  'E': [
-    { baseFret: 1, frets: [0, 2, 2, 1, 0, 0], label: 'Açık Pozisyon' },
-    { baseFret: 7, frets: [-1, 7, 9, 9, 9, 7], label: 'Bareli (7. Perde)' },
-  ],
-  'Em': [
-    { baseFret: 1, frets: [0, 2, 2, 0, 0, 0], label: 'Açık Pozisyon' },
-    { baseFret: 7, frets: [-1, 7, 9, 9, 8, 7], label: 'Bareli (7. Perde)' },
-  ],
-  'E7': [
-    { baseFret: 1, frets: [0, 2, 0, 1, 0, 0], label: 'Açık 7li' },
-    { baseFret: 7, frets: [-1, 7, 9, 7, 9, 7], label: 'Bareli 7li' },
-  ],
-  'Em7': [
-    { baseFret: 1, frets: [0, 2, 0, 0, 0, 0], label: 'Açık m7' },
-    { baseFret: 1, frets: [0, 2, 2, 0, 3, 0], label: 'Rock m7' },
-    { baseFret: 7, frets: [-1, 7, 9, 7, 8, 7], label: 'Bareli m7' },
-  ],
-  'Emaj7': [{ baseFret: 1, frets: [0, 2, 1, 1, 0, 0], label: 'Açık Maj7' }],
-  'E7(b9)': [
-    { baseFret: 1, frets: [0, 2, 0, 1, 0, 1], label: 'Flamenko Açık Pozisyon' },
-    { baseFret: 6, frets: [-1, 7, 6, 7, 6, -1], label: 'Kök 5. Tel Altered' },
-  ],
-  'E7b9': [
-    { baseFret: 1, frets: [0, 2, 0, 1, 0, 1], label: 'Flamenko Açık Pozisyon' },
-  ],
-  'Esus4': [{ baseFret: 1, frets: [0, 2, 2, 2, 0, 0], label: 'Açık Sus4' }],
-
-  // ================= F / F# GRUBU =================
-  'F': [
-    { baseFret: 1, frets: [1, 3, 3, 2, 1, 1], label: 'Tam Bareli' },
-    { baseFret: 1, frets: [-1, -1, 3, 2, 1, 1], label: 'Küçük Bare' },
-    { baseFret: 8, frets: [-1, 8, 10, 10, 10, 8], label: 'Bareli (8. Perde)' },
-  ],
-  'Fm': [
-    { baseFret: 1, frets: [1, 3, 3, 1, 1, 1], label: 'Tam Bareli' },
-    { baseFret: 8, frets: [-1, 8, 10, 10, 9, 8], label: 'Bareli (8. Perde)' },
-  ],
-  'F7': [
-    { baseFret: 1, frets: [1, 3, 1, 2, 1, 1], label: 'Bareli 7li' },
-    { baseFret: 8, frets: [-1, 8, 10, 8, 10, 8], label: 'Bareli 7li' },
-  ],
-  'Fm7': [
-    { baseFret: 1, frets: [1, 3, 1, 1, 1, 1], label: 'Bareli m7' },
-    { baseFret: 8, frets: [-1, 8, 10, 8, 9, 8], label: 'Bareli m7' },
-  ],
-  'Fmaj7': [
-    { baseFret: 1, frets: [1, -1, 2, 2, 1, 0], label: 'Bossa & Akustik' },
-    { baseFret: 1, frets: [-1, -1, 3, 2, 1, 0], label: 'Açık 4 Tel' },
-  ],
-  'Fmaj7(#11)': [
-    { baseFret: 1, frets: [1, 3, 3, 2, 0, 0], label: 'Frigyen Açık Tel (#11)' },
-  ],
-  'F#': [
-    { baseFret: 2, frets: [2, 4, 4, 3, 2, 2], label: 'Bareli (2. Perde)' },
-    { baseFret: 9, frets: [-1, 9, 11, 11, 11, 9], label: 'Bareli (9. Perde)' },
-  ],
-  'F#m': [
-    { baseFret: 2, frets: [2, 4, 4, 2, 2, 2], label: 'Bareli (2. Perde)' },
-    { baseFret: 9, frets: [-1, 9, 11, 11, 10, 9], label: 'Bareli (9. Perde)' },
-  ],
-  'F#7': [
-    { baseFret: 2, frets: [2, 4, 2, 3, 2, 2], label: 'Bareli 7li (2. Perde)' },
-    { baseFret: 1, frets: [-1, -1, 4, 3, 2, 0], label: 'Açık Tını' },
-    { baseFret: 9, frets: [-1, 9, 11, 9, 11, 9], label: 'Bareli 7li (9. Perde)' },
-  ],
-  'F#m7': [
-    { baseFret: 2, frets: [2, 4, 2, 2, 2, 2], label: 'Bareli m7 (2. Perde)' },
-    { baseFret: 9, frets: [-1, 9, 11, 9, 10, 9], label: 'Bareli m7 (9. Perde)' },
-  ],
-  'F#7(b9)': [
-    { baseFret: 2, frets: [2, 4, 2, 3, 2, 3], label: 'Flamenko 7(b9) (2. Perde)' },
-    { baseFret: 7, frets: [-1, 9, 8, 9, 8, -1], label: 'Caz Altered Voicing' },
-  ],
-  'F#7b9': [
-    { baseFret: 2, frets: [2, 4, 2, 3, 2, 3], label: 'Flamenko 7(b9)' },
-  ],
-
-  // ================= G / G# / Ab GRUBU =================
-  'G': [
-    { baseFret: 1, frets: [3, 2, 0, 0, 0, 3], label: 'Açık Pozisyon' },
-    { baseFret: 1, frets: [3, 2, 0, 0, 3, 3], label: 'Modern Rock G' },
-    { baseFret: 3, frets: [3, 5, 5, 4, 3, 3], label: 'Bareli (3. Perde)' },
-  ],
-  'Gm': [
-    { baseFret: 3, frets: [3, 5, 5, 3, 3, 3], label: 'Bareli (3. Perde)' },
-    { baseFret: 10, frets: [-1, 10, 12, 12, 11, 10], label: 'Bareli (10. Perde)' },
-  ],
-  'G7': [
-    { baseFret: 1, frets: [3, 2, 0, 0, 0, 1], label: 'Açık 7li' },
-    { baseFret: 3, frets: [3, 5, 3, 4, 3, 3], label: 'Bareli 7li' },
-  ],
-  'Gm7': [
-    { baseFret: 3, frets: [3, 5, 3, 3, 3, 3], label: 'Bareli m7 (3. Perde)' },
-    { baseFret: 3, frets: [3, -1, 3, 3, 3, -1], label: 'Caz Drop-2' },
-    { baseFret: 10, frets: [-1, 10, 12, 10, 11, 10], label: 'Bareli m7 (10. Perde)' },
-  ],
-  'Gmaj7': [
-    { baseFret: 1, frets: [3, 2, 0, 0, 0, 2], label: 'Açık Maj7' },
-    { baseFret: 3, frets: [3, -1, 4, 4, 3, -1], label: 'Caz Drop-2' },
-  ],
-  'Gsus4': [{ baseFret: 1, frets: [3, 3, 0, 0, 1, 3], label: 'Açık Sus4' }],
-  'G#': [{ baseFret: 4, frets: [4, 6, 6, 5, 4, 4], label: 'Bareli (4. Perde)' }],
-  'G#m': [{ baseFret: 4, frets: [4, 6, 6, 4, 4, 4], label: 'Bareli (4. Perde)' }],
-  'G#7': [{ baseFret: 4, frets: [4, 6, 4, 5, 4, 4], label: 'Bareli 7li' }],
-  'G#m7': [{ baseFret: 4, frets: [4, 6, 4, 4, 4, 4], label: 'Bareli m7' }],
-  'Ab': [{ baseFret: 4, frets: [4, 6, 6, 5, 4, 4], label: 'Bareli (4. Perde)' }],
-  'Abm': [{ baseFret: 4, frets: [4, 6, 6, 4, 4, 4], label: 'Bareli (4. Perde)' }],
-  'Ab7': [{ baseFret: 4, frets: [4, 6, 4, 5, 4, 4], label: 'Bareli 7li' }],
-  'Abmaj7': [{ baseFret: 4, frets: [4, -1, 5, 5, 4, -1], label: 'Caz Maj7' }],
+const ENHARMONIC: Record<string, string> = {
+  'B#': 'C',
+  Cb: 'B',
+  'E#': 'F',
+  Fb: 'E',
+  Db: 'C#',
+  'D#': 'Eb',
+  Gb: 'F#',
+  'G#': 'Ab',
+  'A#': 'Bb',
 };
 
-/**
- * Akor ismini analiz edip tam veya en yakın gitar pozisyonlarını getiren akıllı arama motoru
- */
-export function getChordVoicings(rawChord: string): ChordVoicing[] {
-  if (!rawChord) return [];
+const QUALITY_ALIAS: Record<string, string> = {
+  '': 'maj',
+  M: 'maj',
+  maj: 'maj',
+  major: 'maj',
+  m: 'min',
+  min: 'min',
+  mi: 'min',
+  '-': 'min',
+  '7': '7',
+  dom7: '7',
+  m7: 'm7',
+  min7: 'm7',
+  mi7: 'm7',
+  maj7: 'maj7',
+  M7: 'maj7',
+  Δ: 'maj7',
+  '7M': 'maj7',
+  Δ7: 'maj7',
+  sus: 'sus4',
+  sus4: 'sus4',
+  sus2: 'sus2',
+  dim: 'dim',
+  o: 'dim',
+  dim7: 'dim7',
+  o7: 'dim7',
+  aug: 'aug',
+  '+': 'aug',
+  '5': '5',
+  '6': '6',
+  m6: 'm6',
+  add9: 'add9',
+  add2: 'add9',
+  '9': '9',
+  m9: 'm9',
+  maj9: 'maj9',
+  m7b5: 'm7b5',
+  'm7(b5)': 'm7b5',
+  ø: 'm7b5',
+  mmaj7: 'mmaj7',
+};
 
-  // 1. Temizle
-  const clean = rawChord.replace(/[\[\]]/g, '').trim();
-
-  // 2. Doğrudan Birebir Eşleşme (Örn: Bm7, F#7, F#7(b9))
-  if (GUITAR_CHORDS_DB[clean]) {
-    return GUITAR_CHORDS_DB[clean];
-  }
-
-  // 3. Bas Yürüyüşlü Akorlar (Örn: C/B -> C/B var mı? Yoksa C'ye bak)
-  if (clean.includes('/')) {
-    const [chordPart, bassNote] = clean.split('/');
-    if (GUITAR_CHORDS_DB[clean]) {
-      return GUITAR_CHORDS_DB[clean];
-    }
-    // Eğer C/B veritabanında yoksa ana akora bak (C)
-    if (GUITAR_CHORDS_DB[chordPart]) {
-      return GUITAR_CHORDS_DB[chordPart];
-    }
-  }
-
-  // 4. Parantezli Gerilim/Altered Temizleme: F#7(b9) -> F#7, Am7(b5) -> Am7b5 veya Am7
-  const noParens = clean.replace(/\((.*?)\)/g, '$1');
-  if (GUITAR_CHORDS_DB[noParens]) {
-    return GUITAR_CHORDS_DB[noParens];
-  }
-
-  // 5. Alterasyonu Atıp 7'li Çatıya İndirme: F#7(b9) -> F#7
-  const baseSeven = clean.replace(/\([b#]?[0-9]+\)/g, '');
-  if (GUITAR_CHORDS_DB[baseSeven]) {
-    return GUITAR_CHORDS_DB[baseSeven];
-  }
-
-  // 6. Enharmonic Eşdeğerlik (Örn: C# -> Db, A#m -> Bbm)
-  const enharmonicMap: Record<string, string> = {
-    'A#': 'Bb', 'A#m': 'Bbm', 'A#7': 'Bb7', 'A#maj7': 'Bbmaj7',
-    'C#': 'Db', 'C#m': 'Dbm', 'D#': 'Eb', 'D#m': 'Ebm',
-    'F#': 'Gb', 'G#': 'Ab', 'G#m': 'Abm',
-  };
-  const alias = enharmonicMap[clean];
-  if (alias && GUITAR_CHORDS_DB[alias]) {
-    return GUITAR_CHORDS_DB[alias];
-  }
-
-  // 7. En Temel Kök Akora Fallback: Am7(b5) -> Am, Bm7 -> Bm
-  const rootMatch = clean.match(/^([A-G][b#]?)(m|maj|dim|aug)?/);
-  if (rootMatch && GUITAR_CHORDS_DB[rootMatch[0]]) {
-    return GUITAR_CHORDS_DB[rootMatch[0]];
-  }
-
-  // 8. Saf Notaya Fallback: F#7 -> F#
-  const pureRoot = clean.match(/^([A-G][b#]?)/);
-  if (pureRoot && GUITAR_CHORDS_DB[pureRoot[0]]) {
-    return GUITAR_CHORDS_DB[pureRoot[0]];
-  }
-
-  return [];
+function canonRoot(root: string): string {
+  return ENHARMONIC[root] || root;
 }
+
+export function parseChordToken(raw: string): { root: string; quality: string } | null {
+  const token = String(raw || '')
+    .replace(/[()]/g, '')
+    .split('/')[0]
+    .trim();
+  const match = token.match(/^([A-G][b#]?)(.*)$/);
+  if (!match) return null;
+  const root = canonRoot(match[1]);
+  let quality = (match[2] || '').replace(/\s+/g, '');
+  quality = QUALITY_ALIAS[quality] || QUALITY_ALIAS[quality.toLowerCase()] || quality || 'maj';
+  if (quality === 'maj' && match[2] === '') quality = 'maj';
+  return { root, quality };
+}
+
+function shiftFrets(shape: number[], delta: number): number[] {
+  return shape.map((fret) => (fret < 0 ? fret : fret + delta));
+}
+
+/** E biçimi (6. tel kök) — Justin Guitar / UG açık E ailesi */
+const E_SHAPES: Record<string, number[]> = {
+  maj: [0, 2, 2, 1, 0, 0],
+  min: [0, 2, 2, 0, 0, 0],
+  '7': [0, 2, 0, 1, 0, 0],
+  m7: [0, 2, 0, 0, 0, 0],
+  maj7: [0, 2, 1, 1, 0, 0],
+  sus4: [0, 2, 2, 2, 0, 0],
+  sus2: [0, 2, 2, 0, 0, 2],
+  '5': [0, 2, 2, -1, -1, -1],
+  '6': [0, 2, 2, 1, 2, 0],
+  m6: [0, 2, 2, 0, 2, 0],
+  dim: [0, 1, 2, 0, -1, -1],
+  dim7: [0, 1, 2, 0, 2, 0],
+  aug: [0, 3, 2, 1, 1, 0],
+  add9: [0, 2, 2, 1, 0, 2],
+  '9': [0, 2, 0, 1, 0, 2],
+  m9: [0, 2, 0, 0, 0, 2],
+  maj9: [0, 2, 1, 1, 0, 2],
+  m7b5: [0, 1, 2, 0, 3, 0],
+  mmaj7: [0, 2, 1, 0, 0, 0],
+};
+
+/** A biçimi (5. tel kök) */
+const A_SHAPES: Record<string, number[]> = {
+  maj: [-1, 0, 2, 2, 2, 0],
+  min: [-1, 0, 2, 2, 1, 0],
+  '7': [-1, 0, 2, 0, 2, 0],
+  m7: [-1, 0, 2, 0, 1, 0],
+  maj7: [-1, 0, 2, 1, 2, 0],
+  sus4: [-1, 0, 2, 2, 3, 0],
+  sus2: [-1, 0, 2, 2, 0, 0],
+  '5': [-1, 0, 2, 2, -1, -1],
+  '6': [-1, 0, 2, 2, 2, 2],
+  m6: [-1, 0, 2, 2, 1, 2],
+  dim: [-1, 0, 1, 2, 1, -1],
+  dim7: [-1, 0, 1, 2, 1, 2],
+  aug: [-1, 0, 3, 2, 2, 1],
+  add9: [-1, 0, 2, 2, 2, 2],
+  '9': [-1, 0, 2, 0, 2, 2],
+  m9: [-1, 0, 2, 0, 1, 2],
+  maj9: [-1, 0, 2, 1, 2, 2],
+  m7b5: [-1, 0, 1, 0, 1, -1],
+  mmaj7: [-1, 0, 2, 1, 1, 0],
+};
+
+const E_ROOT_FRET: Record<string, number> = {
+  E: 0, F: 1, 'F#': 2, G: 3, Ab: 4, A: 5, Bb: 6, B: 7, C: 8, 'C#': 9, D: 10, Eb: 11,
+};
+const A_ROOT_FRET: Record<string, number> = {
+  A: 0, Bb: 1, B: 2, C: 3, 'C#': 4, D: 5, Eb: 6, E: 7, F: 8, 'F#': 9, G: 10, Ab: 11,
+};
+
+/** UG / Hal Leonard açık pozisyon tercihleri */
+const GUITAR_OPEN: Record<string, number[]> = {
+  C: [-1, 3, 2, 0, 1, 0],
+  C7: [-1, 3, 2, 3, 1, 0],
+  Cmaj7: [-1, 3, 2, 0, 0, 0],
+  Cadd9: [-1, 3, 2, 0, 3, 0],
+  Csus2: [-1, 3, 0, 0, 1, 3],
+  Csus4: [-1, 3, 3, 0, 1, 1],
+  D: [-1, -1, 0, 2, 3, 2],
+  Dm: [-1, -1, 0, 2, 3, 1],
+  D7: [-1, -1, 0, 2, 1, 2],
+  Dm7: [-1, -1, 0, 2, 1, 1],
+  Dmaj7: [-1, -1, 0, 2, 2, 2],
+  Dsus2: [-1, -1, 0, 2, 3, 0],
+  Dsus4: [-1, -1, 0, 2, 3, 3],
+  E: [0, 2, 2, 1, 0, 0],
+  Em: [0, 2, 2, 0, 0, 0],
+  E7: [0, 2, 0, 1, 0, 0],
+  Em7: [0, 2, 0, 0, 0, 0],
+  Emaj7: [0, 2, 1, 1, 0, 0],
+  Esus4: [0, 2, 2, 2, 0, 0],
+  G: [3, 2, 0, 0, 0, 3],
+  G7: [3, 2, 0, 0, 0, 1],
+  Gmaj7: [3, 2, 0, 0, 0, 2],
+  Gsus4: [3, 3, 0, 0, 1, 3],
+  A: [-1, 0, 2, 2, 2, 0],
+  Am: [-1, 0, 2, 2, 1, 0],
+  A7: [-1, 0, 2, 0, 2, 0],
+  Am7: [-1, 0, 2, 0, 1, 0],
+  Amaj7: [-1, 0, 2, 1, 2, 0],
+  Asus2: [-1, 0, 2, 2, 0, 0],
+  Asus4: [-1, 0, 2, 2, 3, 0],
+  B7: [-1, 2, 1, 2, 0, 2],
+  Fmaj7: [-1, -1, 3, 2, 1, 0],
+  Fadd9: [-1, -1, 3, 2, 1, 3],
+};
+
+function guitarFromShapes(root: string, quality: string): number[] | null {
+  const key = `${root}${quality === 'maj' ? '' : quality === 'min' ? 'm' : quality}`;
+  if (GUITAR_OPEN[key]) return GUITAR_OPEN[key];
+  if (quality === 'maj' && GUITAR_OPEN[root]) return GUITAR_OPEN[root];
+  if (quality === 'min' && GUITAR_OPEN[`${root}m`]) return GUITAR_OPEN[`${root}m`];
+
+  const eFret = E_ROOT_FRET[root];
+  const aFret = A_ROOT_FRET[root];
+  const eShape = E_SHAPES[quality] || E_SHAPES.maj;
+  const aShape = A_SHAPES[quality] || A_SHAPES.maj;
+
+  if (eFret !== undefined && eFret > 0 && eFret <= 4) return shiftFrets(eShape, eFret);
+  if (aFret !== undefined && aFret > 0 && aFret <= 5) return shiftFrets(aShape, aFret);
+  if (eFret !== undefined && eFret > 0) return shiftFrets(eShape, eFret);
+  if (aFret !== undefined && aFret > 0) return shiftFrets(aShape, aFret);
+  if (eFret === 0) return eShape;
+  if (aFret === 0) return aShape;
+  return null;
+}
+
+export function toDisplayFrets(frets: number[]): FretDiagram {
+  const pressed = frets.filter((fret) => fret > 0);
+  if (!pressed.length) return { frets, baseFret: 1 };
+  const max = Math.max(...pressed);
+  if (max <= 4) return { frets, baseFret: 1 };
+  const base = Math.min(...pressed);
+  return {
+    frets: frets.map((fret) => (fret <= 0 ? fret : fret - base + 1)),
+    baseFret: base,
+  };
+}
+
+export function guitarDiagramFor(chord: string): FretDiagram {
+  const parsed = parseChordToken(chord);
+  if (!parsed) return { frets: GUITAR_OPEN.Am, baseFret: 1 };
+  const frets = guitarFromShapes(parsed.root, parsed.quality) || GUITAR_OPEN.Am;
+  return toDisplayFrets(frets);
+}
+
+export function guitarFretsFor(chord: string): number[] {
+  const parsed = parseChordToken(chord);
+  if (!parsed) return GUITAR_OPEN.Am;
+  return guitarFromShapes(parsed.root, parsed.quality) || GUITAR_OPEN.Am;
+}
+
+function bassPower(rootFretOnE: number | null, rootFretOnA: number | null, quality: string): number[] {
+  const minor = quality === 'min' || quality === 'm7' || quality === 'm6' || quality === 'm9' || quality === 'dim' || quality === 'm7b5' || quality === 'mmaj7';
+  const dominant = quality === '7' || quality === '9' || quality === '11' || quality === '13';
+  if (rootFretOnE !== null && rootFretOnE <= 7) {
+    const r = rootFretOnE;
+    const fifth = r + 2;
+    const third = r + (minor ? 0 : 1);
+    if (dominant) return [r, fifth, r, third];
+    return [r, fifth, fifth, third];
+  }
+  if (rootFretOnA !== null) {
+    const r = rootFretOnA;
+    if (minor) return [-1, r, r + 2, r];
+    if (dominant) return [-1, r, r, r + 2];
+    return [-1, r, r + 2, r + 2];
+  }
+  return [-1, 0, 2, 2];
+}
+
+const BASS_OPEN: Record<string, number[]> = {
+  E: [0, 2, 2, 1],
+  Em: [0, 2, 2, 0],
+  E7: [0, 2, 0, 1],
+  Em7: [0, 2, 0, 0],
+  Emaj7: [0, 2, 1, 1],
+  F: [1, 3, 3, 2],
+  Fm: [1, 3, 3, 1],
+  F7: [1, 3, 1, 2],
+  'F#': [2, 4, 4, 3],
+  'F#m': [2, 4, 4, 2],
+  'F#7': [2, 4, 2, 3],
+  G: [3, 5, 5, 4],
+  Gm: [3, 5, 5, 3],
+  G7: [3, 5, 3, 4],
+  Gmaj7: [3, 5, 4, 4],
+  Ab: [4, 6, 6, 5],
+  Abm: [4, 6, 6, 4],
+  A: [-1, 0, 2, 2],
+  Am: [-1, 0, 2, 0],
+  A7: [-1, 0, 2, 0],
+  Am7: [-1, 0, 2, 0],
+  Amaj7: [-1, 0, 2, 1],
+  Bb: [-1, 1, 3, 3],
+  Bbm: [-1, 1, 3, 1],
+  Bb7: [-1, 1, 1, 3],
+  B: [-1, 2, 4, 4],
+  Bm: [-1, 2, 4, 2],
+  B7: [-1, 2, 1, 2],
+  C: [-1, 3, 5, 5],
+  Cm: [-1, 3, 5, 3],
+  C7: [-1, 3, 3, 3],
+  Cmaj7: [-1, 3, 5, 4],
+  'C#': [-1, 4, 6, 6],
+  'C#m': [-1, 4, 6, 4],
+  D: [-1, 5, 7, 7],
+  Dm: [-1, 5, 7, 5],
+  D7: [-1, 5, 5, 5],
+  Dmaj7: [-1, 5, 7, 6],
+  Eb: [-1, 6, 8, 8],
+  Ebm: [-1, 6, 8, 6],
+};
+
+export function bassDiagramFor(chord: string): FretDiagram {
+  const parsed = parseChordToken(chord);
+  if (!parsed) return { frets: BASS_OPEN.Am, baseFret: 1 };
+  const openKey = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality === 'min' ? 'm' : parsed.quality}`;
+  const openAlt = parsed.quality === 'maj' ? parsed.root : parsed.quality === 'min' ? `${parsed.root}m` : '';
+  const known = BASS_OPEN[openKey] || BASS_OPEN[openAlt];
+  if (known) return toDisplayFrets(known);
+  return toDisplayFrets(bassPower(E_ROOT_FRET[parsed.root] ?? null, A_ROOT_FRET[parsed.root] ?? null, parsed.quality));
+}
+
+export function bassFretsFor(chord: string): number[] {
+  const parsed = parseChordToken(chord);
+  if (!parsed) return BASS_OPEN.Am;
+  const openKey = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality === 'min' ? 'm' : parsed.quality}`;
+  const openAlt = parsed.quality === 'maj' ? parsed.root : parsed.quality === 'min' ? `${parsed.root}m` : '';
+  return BASS_OPEN[openKey] || BASS_OPEN[openAlt] || bassPower(E_ROOT_FRET[parsed.root] ?? null, A_ROOT_FRET[parsed.root] ?? null, parsed.quality);
+}
+
+export const GUITAR_CHORD_FRETS: { [key: string]: number[] } = new Proxy(
+  { ...GUITAR_OPEN },
+  {
+    get: (_target, prop: string) => guitarFretsFor(String(prop)),
+  }
+);
+
+export const BASS_CHORD_FRETS: { [key: string]: number[] } = new Proxy(
+  { ...BASS_OPEN },
+  {
+    get: (_target, prop: string) => bassFretsFor(String(prop)),
+  }
+);

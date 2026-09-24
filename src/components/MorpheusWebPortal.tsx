@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,11 +9,21 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { sanitizeSongContent, transposeContent } from '../utils/chordEngine';
 import { getPianoKeysForChord } from '../utils/pianoDiagrams';
+import { bassDiagramFor, guitarDiagramFor, toDisplayFrets } from '../utils/chordDiagrams';
+import { extractChordNames, splitChordAwareLine } from '../utils/chordTokens';
+import { SCORE_PRE_STYLE, sanitizeScore, scoreTextStyle } from '../utils/scoreText';
+import {
+  type SongSortKey,
+  matchesSongLetter,
+  matchesSongQuery,
+  sortSongs,
+} from '../utils/songSearch';
 import { PianoView, FretboardView } from './PianoView';
 import { reharmonizeSong, ReharmonizeStyle, ReharmonizeResult } from '../services/aiArrangerService';
 
@@ -36,6 +46,7 @@ import {
   type CenterPane,
   type MobileShelf,
   displayTier,
+  isHubPane,
   isUpperMembership,
   resolveBadge,
   resolvePalette,
@@ -54,46 +65,6 @@ import {
   type InfoPageId,
 } from '../utils/portalRouting';
 
-const GUITAR_CHORD_FRETS: { [key: string]: number[] } = {
-  'Am': [-1, 0, 2, 2, 1, 0],
-  'A': [-1, 0, 2, 2, 2, 0],
-  'A7': [-1, 0, 2, 0, 2, 0],
-  'C': [-1, 3, 2, 0, 1, 0],
-  'Cmaj7': [-1, 3, 2, 0, 0, 0],
-  'D': [-1, -1, 0, 2, 3, 2],
-  'Dm': [-1, -1, 0, 2, 3, 1],
-  'D7': [-1, -1, 0, 2, 1, 2],
-  'E': [0, 2, 2, 1, 0, 0],
-  'Em': [0, 2, 2, 0, 0, 0],
-  'E7': [0, 2, 0, 1, 0, 0],
-  'F': [1, 3, 3, 2, 1, 1],
-  'F#m': [2, 4, 4, 2, 2, 2],
-  'G': [3, 2, 0, 0, 0, 3],
-  'G7': [3, 2, 0, 0, 0, 1],
-  'B7': [-1, 2, 1, 2, 0, 2],
-  'Bm': [-1, 2, 4, 4, 3, 2],
-};
-
-const BASS_CHORD_FRETS: { [key: string]: number[] } = {
-  'Am': [0, -1, 2, -1],
-  'A': [0, -1, 2, -1],
-  'A7': [0, -1, 2, -1],
-  'C': [-1, 3, -1, 0],
-  'Cmaj7': [-1, 3, -1, 0],
-  'D': [-1, 0, -1, 2],
-  'Dm': [-1, 0, -1, 2],
-  'D7': [-1, 0, -1, 2],
-  'E': [0, -1, 2, -1],
-  'Em': [0, -1, 2, -1],
-  'E7': [0, -1, 2, -1],
-  'F': [1, -1, 3, -1],
-  'F#m': [2, -1, 4, -1],
-  'G': [3, -1, 0, -1],
-  'G7': [3, -1, 0, -1],
-  'B7': [-1, 2, -1, 4],
-  'Bm': [-1, 2, -1, 4],
-};
-
 // Akor satırı ayrıştırıcı
 const isChordLine = (line: string): boolean => {
   const trimmed = line.trim();
@@ -104,6 +75,18 @@ const isChordLine = (line: string): boolean => {
   return matchCount / tokens.length >= 0.5;
 };
 
+const songRating = (song: any) => {
+  const value = Number(song?.rating ?? song?.rating_avg ?? 0);
+  return Number.isFinite(value) ? value : 0;
+};
+
+const songVotes = (song: any) => {
+  const value = Number(song?.votes_count ?? song?.rating_count ?? 0);
+  return Number.isFinite(value) ? value : 0;
+};
+
+const formatRating = (song: any) => songRating(song).toFixed(1);
+
 export default function MorpheusWebPortal() {
   const [songs, setSongs] = useState<any[]>([]);
   const [selectedSong, setSelectedSong] = useState<any | null>(null);
@@ -113,6 +96,7 @@ export default function MorpheusWebPortal() {
 
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const isMobile = viewportWidth < 820;
+  const isNativePlatform = Platform.OS !== 'web';
   const isTablet = viewportWidth >= 820 && viewportWidth < 1100;
   const stageHeight = Math.max(420, viewportHeight - (isMobile ? 220 : 250));
 
@@ -124,7 +108,7 @@ export default function MorpheusWebPortal() {
   // Filtreler
   const [searchQuery, setSearchQuery] = useState('');
   const [originFilter, setOriginFilter] = useState<'Tümü' | 'Yerli' | 'Yabancı'>('Tümü');
-  const [sortFilter, setSortFilter] = useState<'none' | 'views' | 'rating'>('none');
+  const [sortFilter, setSortFilter] = useState<SongSortKey>('title');
   const [selectedGenre, setSelectedGenre] = useState<string>('Tümü');
   const [selectedYear, setSelectedYear] = useState<string>('Tüm Yıllar');
   const [selectedLetter, setSelectedLetter] = useState<string>('Tümü');
@@ -145,6 +129,9 @@ export default function MorpheusWebPortal() {
   const [scrollSpeed, setScrollSpeed] = useState<number>(1);
   const scrollRef = useRef<ScrollView>(null);
   const scrollPosition = useRef(0);
+  const isScrollingRef = useRef(false);
+  const scrollSpeedRef = useRef(1);
+  const autoScrollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // AI Aranje
   const [aiModalVisible, setAiModalVisible] = useState(false); // reserved for overlay fallback
@@ -200,6 +187,9 @@ export default function MorpheusWebPortal() {
   const [correctionNote, setCorrectionNote] = useState('');
   const [savingCorrection, setSavingCorrection] = useState(false);
   const [infoPageId, setInfoPageId] = useState<InfoPageId | null>(null);
+  const [helpPageId, setHelpPageId] = useState<InfoPageId>('yardim');
+  const [diagramChord, setDiagramChord] = useState<string | null>(null);
+  const [publicChordMap, setPublicChordMap] = useState<Record<string, { guitar?: number[]; bass?: number[]; piano?: number[] }>>({});
   const skipUrlWrite = useRef(false);
 
   useEffect(() => {
@@ -246,7 +236,7 @@ export default function MorpheusWebPortal() {
           @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
           * { font-display: swap; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-          code, pre, .monospace-font { font-family: 'JetBrains Mono', monospace !important; }
+          code, pre, .monospace-font { font-family: 'JetBrains Mono', monospace !important; white-space: pre !important; }
         `;
         document.head.appendChild(styleTag);
       }
@@ -306,21 +296,36 @@ export default function MorpheusWebPortal() {
     }
   }, [selectedSong]);
 
-  // Auto Scroll
-  useEffect(() => {
-    let interval: any = null;
-    if (isScrolling) {
-      interval = setInterval(() => {
-        scrollPosition.current += scrollSpeed;
-        if (scrollRef.current) {
-          scrollRef.current.scrollTo({ y: scrollPosition.current, animated: false });
-        }
-      }, 50);
-    } else {
-      clearInterval(interval);
+  scrollSpeedRef.current = scrollSpeed;
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollInterval.current) {
+      clearInterval(autoScrollInterval.current);
+      autoScrollInterval.current = null;
     }
-    return () => clearInterval(interval);
-  }, [isScrolling, scrollSpeed]);
+    if (isScrollingRef.current) {
+      isScrollingRef.current = false;
+      setIsScrolling(false);
+    }
+  }, []);
+
+  const startAutoScroll = useCallback(() => {
+    if (autoScrollInterval.current) {
+      clearInterval(autoScrollInterval.current);
+      autoScrollInterval.current = null;
+    }
+    isScrollingRef.current = true;
+    setIsScrolling(true);
+    autoScrollInterval.current = setInterval(() => {
+      if (!isScrollingRef.current || !scrollRef.current) return;
+      scrollPosition.current += scrollSpeedRef.current;
+      scrollRef.current.scrollTo({ y: scrollPosition.current, animated: false });
+    }, 50);
+  }, []);
+
+  useEffect(() => () => {
+    if (autoScrollInterval.current) clearInterval(autoScrollInterval.current);
+  }, []);
 
   const loadProfile = async (currentUser: any) => {
     const { data: prof } = await supabase
@@ -370,12 +375,22 @@ export default function MorpheusWebPortal() {
   const palette = resolvePalette(isPremiumUser ? profile?.chord_palette : 'classic');
   const headerBadge = resolveBadge(profile?.stage_badge);
 
+  const expandHub = (pane: Extract<CenterPane, 'forum' | 'events' | 'courses' | 'store' | 'help'>, page?: InfoPageId) => {
+    setActiveModal(null);
+    if (page) setHelpPageId(page);
+    else if (infoPageId) setHelpPageId(infoPageId);
+    setInfoPageId(null);
+    setCenterPane(pane);
+    setMobileShelf('stage');
+  };
+
   const openCenter = (pane: CenterPane) => {
-    if (pane !== 'song' && !user && pane !== 'ai') {
+    if (pane !== 'song' && !user && pane !== 'ai' && !isHubPane(pane)) {
       handleOpenAuth();
       return;
     }
     if (pane === 'admin' && !isUserAdmin) return;
+    setActiveModal(null);
     setCenterPane(pane);
     setMobileShelf('stage');
     if (pane === 'inbox' && user) {
@@ -603,15 +618,18 @@ export default function MorpheusWebPortal() {
     setSubmittingRating(true);
     setUserVote(stars);
 
-    const currentRating = selectedSong.rating ? Number(selectedSong.rating) : 5.0;
-    const totalVotes = selectedSong.votes_count ? Number(selectedSong.votes_count) : 1;
-    const newRating = Number(((currentRating * totalVotes + stars) / (totalVotes + 1)).toFixed(1));
+    const currentRating = songRating(selectedSong) || 5.0;
+    const totalVotes = songVotes(selectedSong);
+    const nextVotes = totalVotes + 1;
+    const newRating = Number(((currentRating * totalVotes + stars) / nextVotes).toFixed(1));
 
     const { error } = await supabase
       .from('morfeus_songs')
       .update({
         rating: newRating,
-        votes_count: totalVotes + 1
+        votes_count: nextVotes,
+        rating_avg: newRating,
+        rating_count: nextVotes,
       })
       .eq('id', selectedSong.id);
 
@@ -620,8 +638,17 @@ export default function MorpheusWebPortal() {
       setSelectedSong({
         ...selectedSong,
         rating: newRating,
-        votes_count: totalVotes + 1
+        votes_count: nextVotes,
+        rating_avg: newRating,
+        rating_count: nextVotes,
       });
+      setSongs((prev) =>
+        prev.map((item) =>
+          item.id === selectedSong.id
+            ? { ...item, rating: newRating, votes_count: nextVotes, rating_avg: newRating, rating_count: nextVotes }
+            : item
+        )
+      );
     }
   };
 
@@ -762,7 +789,7 @@ export default function MorpheusWebPortal() {
     setActiveArrangementContent(null);
     setAiResult(null);
     setUserVote(null);
-    setIsScrolling(false);
+    stopAutoScroll();
     scrollPosition.current = 0;
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ y: 0, animated: true });
@@ -833,7 +860,7 @@ export default function MorpheusWebPortal() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [songs]);
 
-  const currentContent = sanitizeSongContent(activeArrangementContent || selectedSong?.content || '');
+  const currentContent = sanitizeScore(activeArrangementContent || selectedSong?.content || '');
 
   const transposedContent = useMemo(() => {
     if (!currentContent) return '';
@@ -842,22 +869,60 @@ export default function MorpheusWebPortal() {
   }, [currentContent, semitoneShift]);
 
   const uniqueChordsInSong = useMemo<string[]>(() => {
-    if (!transposedContent) return [];
-    const chordRegex = /\b[A-G][b#]?(?:m|maj|min|dim|aug|sus)?[0-9]?(?:[#b][0-9]+)?(?:\/[A-G][b#]?)?\b/g;
-    const matches = transposedContent.match(chordRegex) || [];
-    return Array.from(new Set(matches)) as string[];
+    return extractChordNames(transposedContent);
   }, [transposedContent]);
+
+  useEffect(() => {
+    if (!selectedSong?.id) {
+      setPublicChordMap({});
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from('morfeus_public_chords')
+      .select('chord_name, instrument, frets, pitches')
+      .eq('song_id', selectedSong.id)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const next: Record<string, { guitar?: number[]; bass?: number[]; piano?: number[] }> = {};
+        for (const row of data || []) {
+          const name = String(row.chord_name || '');
+          if (!name) continue;
+          next[name] = next[name] || {};
+          if (row.instrument === 'guitar' && Array.isArray(row.frets)) next[name].guitar = row.frets;
+          if (row.instrument === 'bass' && Array.isArray(row.frets)) next[name].bass = row.frets;
+          if (row.instrument === 'piano' && Array.isArray(row.pitches)) next[name].piano = row.pitches;
+        }
+        setPublicChordMap(next);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSong?.id]);
+
+  const resolveGuitarDiagram = (chord: string) => {
+    const mapped = publicChordMap[chord]?.guitar;
+    if (Array.isArray(mapped) && mapped.length === 6) return toDisplayFrets(mapped);
+    return guitarDiagramFor(chord);
+  };
+  const resolveBassDiagram = (chord: string) => {
+    const mapped = publicChordMap[chord]?.bass;
+    if (Array.isArray(mapped) && mapped.length === 4) return toDisplayFrets(mapped);
+    return bassDiagramFor(chord);
+  };
+  const resolvePianoPitches = (chord: string) => {
+    const mapped = publicChordMap[chord]?.piano;
+    if (Array.isArray(mapped) && mapped.length) return mapped;
+    return getPianoKeysForChord(chord);
+  };
 
   const filteredSongs = useMemo(() => {
     return songs.filter((song) => {
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch = !q ||
-        (song.title && song.title.toLowerCase().includes(q)) ||
-        (song.artist && song.artist.toLowerCase().includes(q));
+      const matchesSearch = matchesSongQuery(song, searchQuery);
 
       const matchesOrigin = originFilter === 'Tümü' ||
-        (originFilter === 'Yerli' && song.is_local !== false) ||
-        (originFilter === 'Yabancı' && song.is_local === false);
+        (originFilter === 'Yerli' && song.is_local !== false && song.origin !== 'FOREIGN') ||
+        (originFilter === 'Yabancı' && (song.is_local === false || song.origin === 'FOREIGN'));
 
       const matchesGenre = selectedGenre === 'Tümü' || song.genre === selectedGenre;
 
@@ -870,19 +935,16 @@ export default function MorpheusWebPortal() {
       else if (selectedYear === "2010'lar") matchesYear = y >= 2010 && y < 2020;
       else if (selectedYear === '2020+') matchesYear = y >= 2020;
 
-      const matchesLetter = selectedLetter === 'Tümü' ||
-        (song.title && song.title.toLocaleLowerCase('tr-TR').startsWith(selectedLetter.toLocaleLowerCase('tr-TR')));
-
-      return matchesSearch && matchesOrigin && matchesGenre && matchesYear && matchesLetter;
-    }).sort((a, b) => {
-      if (sortFilter === 'views') return (b.views || 0) - (a.views || 0);
-      if (sortFilter === 'rating') return (b.rating || 0) - (a.rating || 0);
-      return 0;
-    });
+      return matchesSearch && matchesOrigin && matchesGenre && matchesYear && matchesSongLetter(song, selectedLetter);
+    }).sort((a, b) => sortSongs(a, b, sortFilter, songRating));
   }, [songs, searchQuery, originFilter, selectedGenre, selectedYear, selectedLetter, sortFilter]);
 
-  // Repertuvar modu açıkken sol kolon kütüphane yerine listenin parçalarını gösterir
-  const visibleSongs = activePlaylist ? playlistSongs : filteredSongs;
+  const visibleSongs = useMemo(() => {
+    if (!activePlaylist) return filteredSongs;
+    return playlistSongs
+      .filter((song) => matchesSongQuery(song, searchQuery) && matchesSongLetter(song, selectedLetter))
+      .sort((a, b) => sortSongs(a, b, sortFilter, songRating));
+  }, [activePlaylist, filteredSongs, playlistSongs, searchQuery, selectedLetter, sortFilter]);
 
   const handleRunAiArrangement = async () => {
     if (!selectedSong) return;
@@ -1010,15 +1072,29 @@ export default function MorpheusWebPortal() {
                   ))}
 
                   <TouchableOpacity
+                    style={[styles.filterChip, sortFilter === 'title' && styles.activeChip]}
+                    onPress={() => setSortFilter('title')}
+                  >
+                    <Text style={[styles.filterChipText, sortFilter === 'title' && styles.activeChipText]}>Şarkı Adı</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.filterChip, sortFilter === 'artist' && styles.activeChip]}
+                    onPress={() => setSortFilter('artist')}
+                  >
+                    <Text style={[styles.filterChipText, sortFilter === 'artist' && styles.activeChipText]}>Sanatçı Adı</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
                     style={[styles.filterChip, sortFilter === 'views' && styles.activeChip]}
-                    onPress={() => setSortFilter(sortFilter === 'views' ? 'none' : 'views')}
+                    onPress={() => setSortFilter(sortFilter === 'views' ? 'title' : 'views')}
                   >
                     <Text style={[styles.filterChipText, sortFilter === 'views' && styles.activeChipText]}>En Çok Ziyaret Edilenler</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.filterChip, sortFilter === 'rating' && styles.activeChip]}
-                    onPress={() => setSortFilter(sortFilter === 'rating' ? 'none' : 'rating')}
+                    onPress={() => setSortFilter(sortFilter === 'rating' ? 'title' : 'rating')}
                   >
                     <Text style={[styles.filterChipText, sortFilter === 'rating' && styles.activeChipText]}>En Çok Oy Alanlar</Text>
                   </TouchableOpacity>
@@ -1159,8 +1235,21 @@ export default function MorpheusWebPortal() {
                         style={[styles.songCard, isSelected && styles.songCardSelected]}
                         onPress={() => handleSelectSong(song)}
                       >
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.songCardTitle, isSelected && styles.textWhite]}>{song.title}</Text>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={styles.songCardTitleRow}>
+                            <Text
+                              style={[styles.songCardTitle, isSelected && styles.textWhite, { flex: 1 }]}
+                              numberOfLines={1}
+                            >
+                              {song.title}
+                            </Text>
+                            <View style={styles.songCardRating}>
+                              <Text style={styles.songCardStars}>
+                                {[1, 2, 3, 4, 5].map((st) => (st <= Math.round(songRating(song)) ? '★' : '☆')).join('')}
+                              </Text>
+                              <Text style={styles.songCardVotes}>{songVotes(song)}</Text>
+                            </View>
+                          </View>
                           <Text style={styles.songCardArtist}>{song.artist} • {song.genre || 'Genel'}</Text>
                         </View>
                         {activePlaylist ? (
@@ -1256,12 +1345,14 @@ export default function MorpheusWebPortal() {
                     </View>
                     <Text style={styles.formLabel}>Söz ve akor:</Text>
                     <TextInput
-                      style={[styles.formInput, { height: 220, fontFamily: 'monospace', textAlignVertical: 'top' }, { whiteSpace: 'pre' } as object]}
+                      style={scoreTextStyle(styles.formInput, { height: 220, textAlignVertical: 'top' })}
                       multiline
                       value={newContent}
                       onChangeText={setNewContent}
                       placeholder="Akorları sözlerin üzerine hizalayın..."
                       placeholderTextColor="#64748b"
+                      autoCorrect={false}
+                      autoCapitalize="none"
                     />
                     <TouchableOpacity style={styles.saveSongBtn} onPress={handleSaveNewSong} disabled={savingNewSong}>
                       <Text style={styles.saveSongBtnText}>{savingNewSong ? 'Kaydediliyor...' : 'Kütüphaneye Kaydet'}</Text>
@@ -1390,15 +1481,105 @@ export default function MorpheusWebPortal() {
               ) : centerPane === 'suggest' && selectedSong ? (
                 <ScrollView style={styles.songViewWrapper}>
                   <Text style={styles.modalTitle}>Düzeltme Öner</Text>
-                  <TextInput style={styles.modalTextInput} multiline value={correctionText} onChangeText={setCorrectionText} />
+                  <TextInput
+                    style={scoreTextStyle(styles.modalTextInput)}
+                    multiline
+                    value={correctionText}
+                    onChangeText={setCorrectionText}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
                   <TextInput style={styles.modalNoteInput} placeholder="Not" placeholderTextColor="#64748b" value={correctionNote} onChangeText={setCorrectionNote} />
                   <View style={styles.modalActions}>
                     <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setCenterPane('song')}><Text style={styles.modalCancelText}>Vazgeç</Text></TouchableOpacity>
                     <TouchableOpacity style={styles.modalSubmitBtn} onPress={submitCorrection}><Text style={styles.modalSubmitText}>Gönder</Text></TouchableOpacity>
                   </View>
                 </ScrollView>
+              ) : centerPane === 'forum' ? (
+                <ForumModal
+                  visible
+                  presentation="stage"
+                  onClose={() => setCenterPane('song')}
+                  currentUser={user}
+                  onOpenAuth={handleOpenAuth}
+                />
+              ) : centerPane === 'events' ? (
+                <EventsModal
+                  visible
+                  presentation="stage"
+                  onClose={() => setCenterPane('song')}
+                  currentUser={user}
+                  onOpenAuth={handleOpenAuth}
+                />
+              ) : centerPane === 'courses' ? (
+                <CoursesModal
+                  visible
+                  presentation="stage"
+                  onClose={() => setCenterPane('song')}
+                  currentUser={user}
+                  onOpenAuth={handleOpenAuth}
+                />
+              ) : centerPane === 'store' ? (
+                <StoreModal
+                  visible
+                  presentation="stage"
+                  onClose={() => setCenterPane('song')}
+                  currentUser={user}
+                  onOpenAuth={handleOpenAuth}
+                />
+              ) : centerPane === 'help' ? (
+                <InfoModal
+                  visible
+                  presentation="stage"
+                  pageId={helpPageId}
+                  onClose={() => setCenterPane('song')}
+                  onSelectPage={setHelpPageId}
+                />
               ) : selectedSong ? (
-                <ScrollView ref={scrollRef} style={styles.songViewWrapper} showsVerticalScrollIndicator={true}>
+                <View style={styles.songViewWrapper}>
+                  <View style={styles.autoScrollControls}>
+                    <TouchableOpacity
+                      style={[styles.scrollToggleBtn, isScrolling && styles.scrollToggleBtnActive]}
+                      onPress={() => {
+                        if (isScrollingRef.current) stopAutoScroll();
+                        else startAutoScroll();
+                      }}
+                    >
+                      <Text style={styles.scrollToggleBtnText}>
+                        {isScrolling ? '⏸ KAYDIRMAYI DURDUR' : '▶ OTOMATİK AKIŞ (AUTO-SCROLL)'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.speedButtonGroup}>
+                      <Text style={styles.speedLabel}>HIZ:</Text>
+                      {[1, 2, 3].map((spd) => (
+                        <TouchableOpacity
+                          key={spd}
+                          style={[styles.speedBtn, scrollSpeed === spd && styles.speedBtnActive]}
+                          onPress={() => setScrollSpeed(spd)}
+                        >
+                          <Text style={[styles.speedBtnText, scrollSpeed === spd && styles.textWhite]}>{spd}x</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                <ScrollView
+                  ref={scrollRef}
+                  style={styles.songScrollPane}
+                  showsVerticalScrollIndicator={true}
+                  onScroll={(e) => {
+                    if (!isScrollingRef.current) {
+                      scrollPosition.current = e.nativeEvent.contentOffset.y;
+                    }
+                  }}
+                  scrollEventThrottle={16}
+                  onScrollBeginDrag={stopAutoScroll}
+                  onTouchStart={stopAutoScroll}
+                  {...({
+                    onClick: stopAutoScroll,
+                    onWheel: stopAutoScroll,
+                  } as object)}
+                >
                   {/* Üst İşlem Butonları */}
                   <View style={styles.actionHeaderRow}>
                     <TouchableOpacity
@@ -1431,6 +1612,7 @@ export default function MorpheusWebPortal() {
                       <Text style={styles.actionBtnTextSec}>🔗 PAYLAŞIM KODU</Text>
                     </TouchableOpacity>
 
+                    {isNativePlatform && (
                     <TouchableOpacity
                       style={[styles.actionBtnPro, (!isUserAdmin && profile?.membership_tier === 'basic') && styles.disabledBtn]}
                       onPress={() => {
@@ -1443,31 +1625,7 @@ export default function MorpheusWebPortal() {
                     >
                       <Text style={styles.actionBtnTextPro}>👑 SAHNE MODU</Text>
                     </TouchableOpacity>
-                  </View>
-
-                  {/* AUTO SCROLL SAHNE ŞERİDİ */}
-                  <View style={styles.autoScrollControls}>
-                    <TouchableOpacity
-                      style={[styles.scrollToggleBtn, isScrolling && styles.scrollToggleBtnActive]}
-                      onPress={() => setIsScrolling(!isScrolling)}
-                    >
-                      <Text style={styles.scrollToggleBtnText}>
-                        {isScrolling ? '⏸ KAYDIRMAYI DURDUR' : '▶ OTOMATİK AKIŞ (AUTO-SCROLL)'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <View style={styles.speedButtonGroup}>
-                      <Text style={styles.speedLabel}>HIZ:</Text>
-                      {[1, 2, 3].map((spd) => (
-                        <TouchableOpacity
-                          key={spd}
-                          style={[styles.speedBtn, scrollSpeed === spd && styles.speedBtnActive]}
-                          onPress={() => setScrollSpeed(spd)}
-                        >
-                          <Text style={[styles.speedBtnText, scrollSpeed === spd && styles.textWhite]}>{spd}x</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                    )}
                   </View>
 
                   {/* Başlık & Canlı Yıldız Puanlama */}
@@ -1482,7 +1640,7 @@ export default function MorpheusWebPortal() {
 
                       <View style={styles.statsRow}>
                         <View style={styles.starRatingBox}>
-                          <Text style={styles.ratingScoreText}>⭐ {selectedSong.rating || '5.0'}</Text>
+                          <Text style={styles.ratingScoreText}>{formatRating(selectedSong)}</Text>
                           <View style={styles.starsClickRow}>
                             {[1, 2, 3, 4, 5].map((st) => (
                               <TouchableOpacity
@@ -1492,14 +1650,14 @@ export default function MorpheusWebPortal() {
                               >
                                 <Text style={[
                                   styles.starIcon,
-                                  (userVote !== null ? st <= userVote : st <= Math.round(Number(selectedSong.rating || 5))) && styles.starActive
+                                  (userVote !== null ? st <= userVote : st <= Math.round(songRating(selectedSong))) && styles.starActive
                                 ]}>
                                   ★
                                 </Text>
                               </TouchableOpacity>
                             ))}
                           </View>
-                          <Text style={styles.voteCountText}>({selectedSong.votes_count || 1} oy)</Text>
+                          <Text style={styles.voteCountText}>({songVotes(selectedSong)} oy)</Text>
                         </View>
                         <Text style={styles.statItem}>👁️ {selectedSong.views || 0} İzlenme</Text>
                         <Text style={styles.statItem}>📑 {selectedSong.playlist_count || 0} Liste</Text>
@@ -1544,25 +1702,25 @@ export default function MorpheusWebPortal() {
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chordsScroll}>
                       {uniqueChordsInSong.map((chord: string) => {
                         if (instrumentTab === 'piyano') {
-                          const pitches = getPianoKeysForChord(chord);
+                          const pitches = resolvePianoPitches(chord);
                           return (
-                            <View key={`piano-${chord}`} style={styles.chordDiagramCard}>
+                            <TouchableOpacity key={`piano-${chord}`} style={[styles.chordDiagramCard, styles.chordDiagramCardPiano]} onPress={() => setDiagramChord(chord)}>
                               <PianoView activePitches={pitches} chordName={chord} />
-                            </View>
+                            </TouchableOpacity>
                           );
                         } else if (instrumentTab === 'gitar') {
-                          const frets = GUITAR_CHORD_FRETS[chord] || [-1, 0, 2, 2, 1, 0];
+                          const diagram = resolveGuitarDiagram(chord);
                           return (
-                            <View key={`guitar-${chord}`} style={styles.chordDiagramCard}>
-                              <FretboardView chordName={chord} stringsCount={6} frets={frets} />
-                            </View>
+                            <TouchableOpacity key={`guitar-${chord}`} style={styles.chordDiagramCard} onPress={() => setDiagramChord(chord)}>
+                              <FretboardView chordName={chord} stringsCount={6} frets={diagram.frets} baseFret={diagram.baseFret} />
+                            </TouchableOpacity>
                           );
                         } else {
-                          const frets = BASS_CHORD_FRETS[chord] || [0, -1, 2, -1];
+                          const diagram = resolveBassDiagram(chord);
                           return (
-                            <View key={`bass-${chord}`} style={styles.chordDiagramCard}>
-                              <FretboardView chordName={chord} stringsCount={4} frets={frets} />
-                            </View>
+                            <TouchableOpacity key={`bass-${chord}`} style={styles.chordDiagramCard} onPress={() => setDiagramChord(chord)}>
+                              <FretboardView chordName={chord} stringsCount={4} frets={diagram.frets} baseFret={diagram.baseFret} />
+                            </TouchableOpacity>
                           );
                         }
                       })}
@@ -1607,16 +1765,31 @@ export default function MorpheusWebPortal() {
                   <View style={[styles.lyricsBox, { backgroundColor: palette.bg }]}>
                     {transposedContent.split('\n').map((line: string, idx: number) => {
                       const isChord = isChordLine(line);
+                      const parts = splitChordAwareLine(line);
                       return (
                         <Text
                           key={idx}
-                          style={[
+                          style={scoreTextStyle(
                             styles.lyricsText,
                             { fontSize },
                             isChord ? [styles.chordLineText, { color: palette.chord }] : [styles.lyricLineText, { color: palette.lyric }]
-                          ]}
+                          )}
                         >
-                          {line || ' '}
+                          {parts.length === 0
+                            ? ' '
+                            : parts.map((part, i) =>
+                                part.chord ? (
+                                  <Text
+                                    key={`${idx}-${i}`}
+                                    onPress={() => setDiagramChord(part.chord || null)}
+                                    style={scoreTextStyle(styles.clickableChord, { color: palette.chord })}
+                                  >
+                                    {part.text}
+                                  </Text>
+                                ) : (
+                                  <Text key={`${idx}-${i}`} style={SCORE_PRE_STYLE}>{part.text}</Text>
+                                )
+                              )}
                         </Text>
                       );
                     })}
@@ -1633,6 +1806,7 @@ export default function MorpheusWebPortal() {
                     <Text style={styles.correctionBtnText}>✍️ Bu Parça İçin Düzeltme Önerisinde Bulun</Text>
                   </TouchableOpacity>
                 </ScrollView>
+                </View>
               ) : (
                 <View style={styles.emptyCenter}>
                   <Text style={styles.emptyCenterText}>Görüntülemek için soldan bir şarkı seçin.</Text>
@@ -1775,36 +1949,40 @@ export default function MorpheusWebPortal() {
       )}
 
       {/* SİSTEM MODALLARI */}
-      {activeModal === 'forum' && (
+      {activeModal === 'forum' && centerPane !== 'forum' && (
         <ForumModal
           visible={true}
           onClose={() => setActiveModal(null)}
           currentUser={user}
           onOpenAuth={handleOpenAuth}
+          onExpand={() => expandHub('forum')}
         />
       )}
-      {activeModal === 'events' && (
+      {activeModal === 'events' && centerPane !== 'events' && (
         <EventsModal
           visible={true}
           onClose={() => setActiveModal(null)}
           currentUser={user}
           onOpenAuth={handleOpenAuth}
+          onExpand={() => expandHub('events')}
         />
       )}
-      {activeModal === 'courses' && (
+      {activeModal === 'courses' && centerPane !== 'courses' && (
         <CoursesModal
           visible={true}
           onClose={() => setActiveModal(null)}
           currentUser={user}
           onOpenAuth={handleOpenAuth}
+          onExpand={() => expandHub('courses')}
         />
       )}
-      {activeModal === 'store' && (
+      {activeModal === 'store' && centerPane !== 'store' && (
         <StoreModal
           visible={true}
           onClose={() => setActiveModal(null)}
           currentUser={user}
           onOpenAuth={handleOpenAuth}
+          onExpand={() => expandHub('store')}
         />
       )}
       {activeModal === 'subscription' && (
@@ -1819,23 +1997,68 @@ export default function MorpheusWebPortal() {
           onOpenAuth={handleOpenAuth}
         />
       )}
-      {activeModal === 'tuner' && (
+      {isNativePlatform && activeModal === 'tuner' && (
         <TunerModal
           visible={true}
           onClose={() => setActiveModal(null)}
         />
       )}
+      <Modal
+        visible={!!diagramChord}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDiagramChord(null)}
+      >
+        <View style={styles.chordPopupBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setDiagramChord(null)} />
+          <View style={styles.chordPopupCard}>
+            <View style={styles.chordPopupHeader}>
+              <Text style={styles.chordPopupTitle}>{diagramChord}</Text>
+              <TouchableOpacity onPress={() => setDiagramChord(null)}>
+                <Text style={styles.chordPopupClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.chordPopupBody, isMobile && styles.chordPopupBodyStack]}>
+              <View style={styles.chordPopupCol}>
+                <Text style={styles.chordPopupLabel}>GİTAR</Text>
+                <FretboardView
+                  chordName={diagramChord || ''}
+                  stringsCount={6}
+                  frets={resolveGuitarDiagram(diagramChord || 'Am').frets}
+                  baseFret={resolveGuitarDiagram(diagramChord || 'Am').baseFret}
+                />
+              </View>
+              <View style={styles.chordPopupCol}>
+                <Text style={styles.chordPopupLabel}>PİYANO</Text>
+                <PianoView activePitches={resolvePianoPitches(diagramChord || '')} chordName={diagramChord || ''} />
+              </View>
+              <View style={styles.chordPopupCol}>
+                <Text style={styles.chordPopupLabel}>BAS</Text>
+                <FretboardView
+                  chordName={diagramChord || ''}
+                  stringsCount={4}
+                  frets={resolveBassDiagram(diagramChord || 'Am').frets}
+                  baseFret={resolveBassDiagram(diagramChord || 'Am').baseFret}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {activeModal === 'webconnect' && (
         <WebConnectModal
           visible={true}
           onClose={() => setActiveModal(null)}
         />
       )}
-      <InfoModal
-        visible={!!infoPageId}
-        pageId={infoPageId}
-        onClose={closeInfoPage}
-      />
+      {centerPane !== 'help' && (
+        <InfoModal
+          visible={!!infoPageId}
+          pageId={infoPageId}
+          onClose={closeInfoPage}
+          onExpand={() => expandHub('help', infoPageId || 'yardim')}
+        />
+      )}
     </ScrollView>
     {isMobile && (
       <View style={styles.bottomBar}>
@@ -1936,7 +2159,7 @@ const styles = StyleSheet.create({
   corrBtnTextRed: { color: '#f87171', fontSize: 11, fontWeight: '700' },
   corrNote: { color: '#38bdf8', fontSize: 12, marginBottom: 8, fontStyle: 'italic' },
   corrCodeBox: { maxHeight: 150, backgroundColor: '#090d16', padding: 10, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b' },
-  corrCodeText: { color: '#f8fafc', fontFamily: 'monospace', fontSize: 11, lineHeight: 18 },
+  corrCodeText: { ...SCORE_PRE_STYLE, color: '#f8fafc', fontSize: 11, lineHeight: 18 },
 
   // YENİ ŞARKI FORMU
   addSongForm: { backgroundColor: '#0f172a', borderRadius: 8, padding: 20, borderWidth: 1, borderColor: '#1e293b', gap: 14, maxWidth: 800 },
@@ -2035,12 +2258,17 @@ const styles = StyleSheet.create({
   songCard: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, borderBottomColor: '#131c2e', alignItems: 'center' },
   songCardSelected: { backgroundColor: '#1e293b' },
   songCardTitle: { color: '#cbd5e1', fontSize: 12, fontWeight: '600' },
+  songCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  songCardRating: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 },
+  songCardStars: { color: '#38BDF8', fontSize: 9, letterSpacing: 0.4, fontWeight: '700' },
+  songCardVotes: { color: '#94A3B8', fontSize: 9, fontWeight: '700' },
   songCardArtist: { color: '#64748b', fontSize: 10, marginTop: 2 },
   keyTag: { color: '#38bdf8', fontWeight: '700', fontSize: 11 },
   textWhite: { color: '#ffffff' },
   
   centerCol: { flex: 1, backgroundColor: '#070a12', display: 'flex' as any, overflow: 'hidden' as any },
   songViewWrapper: { flex: 1, padding: 16 },
+  songScrollPane: { flex: 1 },
   actionHeaderRow: { flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' },
   actionBtnAI: { backgroundColor: '#8b5cf6', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 5 },
   revertBtn: { backgroundColor: '#334155', paddingVertical: 7, paddingHorizontal: 12, borderRadius: 5 },
@@ -2087,10 +2315,10 @@ const styles = StyleSheet.create({
 
   // İNTERAKTİF YILDIZ STİLLERİ
   starRatingBox: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1e293b', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
-  ratingScoreText: { color: '#f8fafc', fontSize: 11, fontWeight: '700' },
+  ratingScoreText: { color: '#38BDF8', fontSize: 11, fontWeight: '700' },
   starsClickRow: { flexDirection: 'row', gap: 1 },
   starIcon: { color: '#475569', fontSize: 14, paddingHorizontal: 1 },
-  starActive: { color: '#f59e0b' },
+  starActive: { color: '#38BDF8' },
   voteCountText: { color: '#64748b', fontSize: 10 },
 
   artistRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -2115,6 +2343,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     justifyContent: 'center', 
   },
+  chordDiagramCardPiano: {
+    paddingHorizontal: 4,
+    marginRight: 4,
+  },
 
   transRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', padding: 10, borderRadius: 6, marginVertical: 10 },
   keyPickerWrap: { flexDirection: 'row', alignItems: 'center', position: 'relative' },
@@ -2133,9 +2365,19 @@ const styles = StyleSheet.create({
 
   // AYRIŞTIRILMIŞ AKOR VE SÖZ STİLLERİ
   lyricsBox: { backgroundColor: '#05080e', padding: 16, borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', marginVertical: 8 },
-  lyricsText: { fontFamily: 'monospace', lineHeight: 22, ...({ whiteSpace: 'pre' } as object) },
-  chordLineText: { color: '#38bdf8', fontWeight: '700' },
+  lyricsText: { ...SCORE_PRE_STYLE, lineHeight: 22 },
+  chordLineText: { color: '#FFC107', fontWeight: '700' },
   lyricLineText: { color: '#cbd5e1', fontWeight: '400' },
+  clickableChord: { textDecorationLine: 'underline', fontWeight: '700' },
+  chordPopupBackdrop: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.78)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  chordPopupCard: { width: '100%', maxWidth: 720, backgroundColor: '#0f172a', borderRadius: 10, borderWidth: 1, borderColor: '#334155', padding: 16, zIndex: 2 },
+  chordPopupHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  chordPopupTitle: { color: '#FFC107', fontSize: 20, fontWeight: '800' },
+  chordPopupClose: { color: '#94a3b8', fontSize: 18, fontWeight: '700' },
+  chordPopupBody: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  chordPopupBodyStack: { flexDirection: 'column' },
+  chordPopupCol: { flex: 1, alignItems: 'center', backgroundColor: '#090d16', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#1e293b' },
+  chordPopupLabel: { color: '#38bdf8', fontSize: 11, fontWeight: '800', marginBottom: 8, letterSpacing: 0.6 },
 
   correctionBtn: { marginTop: 12, marginBottom: 24, padding: 10, borderRadius: 6, backgroundColor: '#1e293b', alignItems: 'center' },
   correctionBtnText: { color: '#38bdf8', fontSize: 11, fontWeight: '600' },
@@ -2211,9 +2453,9 @@ const styles = StyleSheet.create({
   aiResultWrapper: { marginBottom: 14 },
   aiNotesText: { color: '#38bdf8', fontSize: 11, marginBottom: 8, fontWeight: '600' },
   aiPreviewBox: { height: 180, backgroundColor: '#090d16', borderRadius: 6, padding: 10, borderWidth: 1, borderColor: '#1e293b' },
-  aiPreviewContent: { color: '#f8fafc', fontFamily: 'monospace', fontSize: 11, lineHeight: 18 },
+  aiPreviewContent: { ...SCORE_PRE_STYLE, color: '#f8fafc', fontSize: 11, lineHeight: 18 },
 
-  modalTextInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontFamily: 'monospace', fontSize: 12, height: 140, textAlignVertical: 'top', borderWidth: 1, borderColor: '#1e293b', marginBottom: 10, ...({ whiteSpace: 'pre' } as object) },
+  modalTextInput: { ...SCORE_PRE_STYLE, backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontSize: 12, height: 140, textAlignVertical: 'top', borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   modalNoteInput: { backgroundColor: '#090d16', color: '#f8fafc', borderRadius: 5, padding: 8, fontSize: 12, height: 36, borderWidth: 1, borderColor: '#1e293b', marginBottom: 16 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
   modalCancelBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 5, backgroundColor: '#1e293b' },

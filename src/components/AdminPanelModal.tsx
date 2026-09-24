@@ -9,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import { matchesSongQuery } from '../utils/songSearch';
 import {
   X,
   ShieldCheck,
@@ -231,11 +232,7 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
       (p.full_name && p.full_name.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const filteredSongs = songs.filter(
-    (s) =>
-      s.title.toLowerCase().includes(search.toLowerCase()) ||
-      s.artist.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredSongs = songs.filter((s) => matchesSongQuery(s, search));
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

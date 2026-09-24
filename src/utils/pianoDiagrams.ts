@@ -7,9 +7,7 @@ export interface PianoKey {
   active?: boolean;
 }
 
-// 2 Oktavlık Piyano Tuş Dizilimi (C3 - B4)
 export const PIANO_KEYS_2_OCTAVES: PianoKey[] = [
-  // 1. Oktav
   { note: 'C', isBlack: false, midi: 60 },
   { note: 'C#', isBlack: true, midi: 61 },
   { note: 'D', isBlack: false, midi: 62 },
@@ -22,7 +20,6 @@ export const PIANO_KEYS_2_OCTAVES: PianoKey[] = [
   { note: 'A', isBlack: false, midi: 69 },
   { note: 'A#', isBlack: true, midi: 70 },
   { note: 'B', isBlack: false, midi: 71 },
-  // 2. Oktav
   { note: 'C', isBlack: false, midi: 72 },
   { note: 'C#', isBlack: true, midi: 73 },
   { note: 'D', isBlack: false, midi: 74 },
@@ -38,45 +35,81 @@ export const PIANO_KEYS_2_OCTAVES: PianoKey[] = [
 ];
 
 const NOTE_TO_INDEX: { [key: string]: number } = {
-  'C': 0, 'C#': 1, 'Db': 1,
-  'D': 2, 'D#': 3, 'Eb': 3,
-  'E': 4,
-  'F': 5, 'F#': 6, 'Gb': 6,
-  'G': 7, 'G#': 8, 'Ab': 8,
-  'A': 9, 'A#': 10, 'Bb': 10,
-  'B': 11
+  C: 0, 'B#': 0,
+  'C#': 1, Db: 1,
+  D: 2,
+  'D#': 3, Eb: 3,
+  E: 4, Fb: 4,
+  F: 5, 'E#': 5,
+  'F#': 6, Gb: 6,
+  G: 7,
+  'G#': 8, Ab: 8,
+  A: 9,
+  'A#': 10, Bb: 10,
+  B: 11, Cb: 11,
 };
 
-// Akor Formülleri (Yarım Ton Aralıkları)
 const CHORD_INTERVALS: { [key: string]: number[] } = {
-  '': [0, 4, 7],         // Majör
-  'M': [0, 4, 7],
-  'm': [0, 3, 7],        // Minör
-  'min': [0, 3, 7],
-  '7': [0, 4, 7, 10],    // Dominant 7
-  'm7': [0, 3, 7, 10],   // Minör 7
-  'maj7': [0, 4, 7, 11], // Majör 7
-  'dim': [0, 3, 6],      // Diminished
-  'aug': [0, 4, 8],      // Augmented
-  'sus4': [0, 5, 7],     // Sus4
-  'sus2': [0, 2, 7]      // Sus2
+  '': [0, 4, 7],
+  M: [0, 4, 7],
+  maj: [0, 4, 7],
+  m: [0, 3, 7],
+  min: [0, 3, 7],
+  mi: [0, 3, 7],
+  '5': [0, 7],
+  '6': [0, 4, 7, 9],
+  m6: [0, 3, 7, 9],
+  '7': [0, 4, 7, 10],
+  m7: [0, 3, 7, 10],
+  min7: [0, 3, 7, 10],
+  maj7: [0, 4, 7, 11],
+  M7: [0, 4, 7, 11],
+  mmaj7: [0, 3, 7, 11],
+  mMaj7: [0, 3, 7, 11],
+  dim: [0, 3, 6],
+  dim7: [0, 3, 6, 9],
+  o: [0, 3, 6],
+  o7: [0, 3, 6, 9],
+  aug: [0, 4, 8],
+  '+': [0, 4, 8],
+  aug7: [0, 4, 8, 10],
+  sus: [0, 5, 7],
+  sus4: [0, 5, 7],
+  sus2: [0, 2, 7],
+  add9: [0, 4, 7, 2],
+  add2: [0, 4, 7, 2],
+  '9': [0, 4, 7, 10, 2],
+  m9: [0, 3, 7, 10, 2],
+  maj9: [0, 4, 7, 11, 2],
+  '11': [0, 4, 7, 10, 5],
+  '13': [0, 4, 7, 10, 9],
+  m7b5: [0, 3, 6, 10],
+  'm7(b5)': [0, 3, 6, 10],
+  ø: [0, 3, 6, 10],
+  '2': [0, 2, 4, 7],
 };
+
+function normalizeQuality(raw: string): string {
+  const q = raw.replace(/[()]/g, '').trim();
+  if (!q) return '';
+  if (CHORD_INTERVALS[q]) return q;
+  const lower = q.toLowerCase();
+  if (lower === 'maj') return 'maj';
+  if (lower === 'min' || lower === 'mi') return 'm';
+  if (CHORD_INTERVALS[lower]) return lower;
+  return q;
+}
 
 export function getPianoKeysForChord(chordName: string): number[] {
   if (!chordName) return [];
 
-  // Akor Kökü ve Tipini Ayır (Örn: C#m7 -> root: C#, type: m7)
-  const match = chordName.match(/^([A-G][#b]?)(.*)$/);
+  const token = chordName.split('/')[0].trim();
+  const match = token.match(/^([A-G][b#]?)(.*)$/);
   if (!match) return [];
 
-  const root = match[1];
-  const type = match[2] || '';
-
-  const rootIndex = NOTE_TO_INDEX[root];
+  const rootIndex = NOTE_TO_INDEX[match[1]];
   if (rootIndex === undefined) return [];
 
-  const intervals = CHORD_INTERVALS[type] || CHORD_INTERVALS[''];
-
-  // Notanın yarım ton indekslerini döndür (0 - 11 arası)
-  return intervals.map(interval => (rootIndex + interval) % 12);
+  const intervals = CHORD_INTERVALS[normalizeQuality(match[2])] || CHORD_INTERVALS[''];
+  return Array.from(new Set(intervals.map((interval) => (rootIndex + interval) % 12)));
 }

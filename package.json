@@ -8,6 +8,7 @@
     "axios": "^1.20.0",
     "cheerio": "^1.2.0",
     "expo": "~57.0.18",
+    "expo-audio": "~57.0.5",
     "expo-status-bar": "~57.0.1",
     "lucide-react-native": "^1.37.0",
     "puppeteer": "^25.11.0",
@@ -30,7 +31,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "sitemap": "tsx scripts/generateSitemap.ts",
-    "sanitize-library": "tsx scripts/sanitizeLibrary.ts"
+    "sanitize-library": "tsx scripts/sanitizeLibrary.ts",
+    "ingest-akorlar": "tsx scripts/ingestAkorlar.ts"
   },
   "private": true
 }
