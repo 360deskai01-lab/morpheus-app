@@ -86,7 +86,7 @@ drop trigger if exists trg_playlist_songs_counters on public.playlist_songs;
 
 create trigger trg_playlist_songs_counters
   after insert or delete on public.playlist_songs
-  for each row execute function public.morfeus_sync_playlist_counters();
+  for each row execute procedure public.morfeus_sync_playlist_counters();
 
 -- ---------------------------------------------------------------------------
 -- 3. RLS: her kullanici yalnizca kendi repertuvarini gorur ve yonetir
@@ -146,6 +146,8 @@ create policy playlist_songs_delete_own on public.playlist_songs
 -- ---------------------------------------------------------------------------
 -- 4. Yetkiler
 -- ---------------------------------------------------------------------------
+
+revoke all on function public.morfeus_sync_playlist_counters() from public;
 
 grant select, insert, update, delete on public.morfeus_playlists to authenticated;
 grant select, insert, delete          on public.playlist_songs    to authenticated;

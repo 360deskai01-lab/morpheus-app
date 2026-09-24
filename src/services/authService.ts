@@ -55,8 +55,7 @@ export async function registerUser(email: string, pass: string, fullName: string
       id: data.user.id,
       email: cleanEmail,
       full_name: fullName.trim(),
-      membership_tier: 'BASIC',
-      is_master_admin: false,
+      membership_tier: 'basic',
     },
   ]);
 
@@ -146,20 +145,17 @@ export async function fetchAllProfiles(): Promise<UserProfile[]> {
 }
 
 export async function updateUserMembershipTier(profileId: string, tier: 'FREE' | 'BASIC' | 'PREMIUM') {
-  const { error } = await supabase
-    .from('morfeus_profiles')
-    .update({ membership_tier: tier })
-    .eq('id', profileId);
-
+  const { error } = await supabase.rpc('morfeus_admin_set_tier', {
+    p_profile_id: profileId,
+    p_tier: tier.toLowerCase(),
+  });
   if (error) throw error;
 }
 
 export async function deleteUserProfile(profileId: string) {
-  const { error } = await supabase
-    .from('morfeus_profiles')
-    .delete()
-    .eq('id', profileId);
-
+  const { error } = await supabase.rpc('morfeus_admin_delete_profile', {
+    p_profile_id: profileId,
+  });
   if (error) throw error;
 }
 

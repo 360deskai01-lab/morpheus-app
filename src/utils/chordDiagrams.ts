@@ -198,17 +198,21 @@ export function toDisplayFrets(frets: number[]): FretDiagram {
   };
 }
 
+const MUTED_GUITAR = [-1, -1, -1, -1, -1, -1];
+const MUTED_BASS = [-1, -1, -1, -1];
+
 export function guitarDiagramFor(chord: string): FretDiagram {
   const parsed = parseChordToken(chord);
-  if (!parsed) return { frets: GUITAR_OPEN.Am, baseFret: 1 };
-  const frets = guitarFromShapes(parsed.root, parsed.quality) || GUITAR_OPEN.Am;
+  if (!parsed) return { frets: MUTED_GUITAR, baseFret: 1 };
+  const frets = guitarFromShapes(parsed.root, parsed.quality);
+  if (!frets) return { frets: MUTED_GUITAR, baseFret: 1 };
   return toDisplayFrets(frets);
 }
 
 export function guitarFretsFor(chord: string): number[] {
   const parsed = parseChordToken(chord);
-  if (!parsed) return GUITAR_OPEN.Am;
-  return guitarFromShapes(parsed.root, parsed.quality) || GUITAR_OPEN.Am;
+  if (!parsed) return MUTED_GUITAR;
+  return guitarFromShapes(parsed.root, parsed.quality) || MUTED_GUITAR;
 }
 
 function bassPower(rootFretOnE: number | null, rootFretOnA: number | null, quality: string): number[] {
@@ -275,7 +279,7 @@ const BASS_OPEN: Record<string, number[]> = {
 
 export function bassDiagramFor(chord: string): FretDiagram {
   const parsed = parseChordToken(chord);
-  if (!parsed) return { frets: BASS_OPEN.Am, baseFret: 1 };
+  if (!parsed) return { frets: MUTED_BASS, baseFret: 1 };
   const openKey = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality === 'min' ? 'm' : parsed.quality}`;
   const openAlt = parsed.quality === 'maj' ? parsed.root : parsed.quality === 'min' ? `${parsed.root}m` : '';
   const known = BASS_OPEN[openKey] || BASS_OPEN[openAlt];
@@ -285,7 +289,7 @@ export function bassDiagramFor(chord: string): FretDiagram {
 
 export function bassFretsFor(chord: string): number[] {
   const parsed = parseChordToken(chord);
-  if (!parsed) return BASS_OPEN.Am;
+  if (!parsed) return MUTED_BASS;
   const openKey = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality === 'min' ? 'm' : parsed.quality}`;
   const openAlt = parsed.quality === 'maj' ? parsed.root : parsed.quality === 'min' ? `${parsed.root}m` : '';
   return BASS_OPEN[openKey] || BASS_OPEN[openAlt] || bassPower(E_ROOT_FRET[parsed.root] ?? null, A_ROOT_FRET[parsed.root] ?? null, parsed.quality);

@@ -1,5 +1,3 @@
-import { supabase } from '../lib/supabase';
-
 export interface PaymentDetails {
   cardHolder: string;
   cardNumber: string;
@@ -19,18 +17,8 @@ export async function processPremiumSubscription(
     throw new Error('Geçerli bir kart sahibi ve 16 haneli kart numarası giriniz.');
   }
 
-  // Supabase üzerindeki profili anında PREMIUM yap
-  const { error } = await supabase
-    .from('morfeus_profiles')
-    .update({ membership_tier: 'PREMIUM' })
-    .eq('id', userId);
-
-  if (error) {
-    throw new Error('Üyelik yükseltilirken veritabanı hatası oluştu: ' + error.message);
-  }
-
-  return {
-    success: true,
-    message: 'Tebrikler! Morpheus Premium üyeliğiniz başarıyla aktif edildi.',
-  };
+  void userId;
+  throw new Error(
+    'Premium yükseltme artık istemciden yazılamaz. Ödeme onayından sonra yönetici veya sunucu RPC ile tanımlanır.'
+  );
 }

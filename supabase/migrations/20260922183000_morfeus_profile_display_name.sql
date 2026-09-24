@@ -19,6 +19,24 @@ AS $$
   );
 $$;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM (
+      SELECT lower(btrim(full_name)) AS n
+      FROM public.morfeus_profiles
+      WHERE full_name IS NOT NULL AND btrim(full_name) <> ''
+      GROUP BY 1
+      HAVING count(*) > 1
+    ) dups
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS morfeus_profiles_full_name_ci
+      ON public.morfeus_profiles (lower(btrim(full_name)))
+      WHERE full_name IS NOT NULL AND btrim(full_name) <> '';
+  END IF;
+END $$;
+
 REVOKE ALL ON FUNCTION public.morfeus_is_display_name_taken(text, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.morfeus_is_display_name_taken(text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.morfeus_is_display_name_taken(text, uuid) TO anon;

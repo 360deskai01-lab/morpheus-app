@@ -64,7 +64,6 @@ export default function AuthModal({
             email: data.user.email,
             full_name: fullName.trim() || email.split('@')[0],
             membership_tier: 'basic',
-            is_master_admin: data.user.email === 'master@360bct.com'
           });
         }
       }

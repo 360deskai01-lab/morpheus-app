@@ -1,4 +1,4 @@
-import { CHORD_REGEX_STR, INLINE_CHORD_REGEX } from './chordEngine';
+import { CHORD_REGEX_STR, isChordLine } from './chordEngine';
 
 const TOKEN = new RegExp(`^${CHORD_REGEX_STR}$`);
 
@@ -13,16 +13,19 @@ export function extractChordNames(content: string): string[] {
     const name = item.slice(1, -1).trim();
     if (looksLikeChord(name)) found.add(name);
   }
-  const bare = content.match(new RegExp(INLINE_CHORD_REGEX.source, 'g')) || [];
-  for (const name of bare) {
-    const clean = name.replace(/[\[\]]/g, '').trim();
-    if (looksLikeChord(clean)) found.add(clean);
+  for (const line of content.split('\n')) {
+    if (!isChordLine(line)) continue;
+    for (const token of line.split(/\s+/)) {
+      const clean = token.replace(/[\[\]]/g, '').trim();
+      if (looksLikeChord(clean)) found.add(clean);
+    }
   }
   return Array.from(found);
 }
 
 export function splitChordAwareLine(line: string): Array<{ text: string; chord?: string }> {
   const parts: Array<{ text: string; chord?: string }> = [];
+  const chordLine = isChordLine(line);
   const chunks = line.split(/(\[[^\]]+\]|\s+)/);
   for (const chunk of chunks) {
     if (!chunk) continue;
@@ -31,7 +34,7 @@ export function splitChordAwareLine(line: string): Array<{ text: string; chord?:
       parts.push({ text: chunk, chord: bracket[1] });
       continue;
     }
-    if (looksLikeChord(chunk)) {
+    if (chordLine && looksLikeChord(chunk)) {
       parts.push({ text: chunk, chord: chunk });
       continue;
     }

@@ -38,7 +38,10 @@ export default function ModuleFrame({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>{card}</View>
+      <View style={styles.backdrop}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Kapat" />
+        {card}
+      </View>
     </Modal>
   );
 }

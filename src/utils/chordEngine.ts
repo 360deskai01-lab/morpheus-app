@@ -102,21 +102,16 @@ export function isChordLine(line: string): boolean {
 export function transposeContent(content: string, semitones: number, preferFlats = false): string {
   if (!content || semitones === 0) return content;
 
-  if (BRACKETED_CHORD_REGEX.test(content)) {
-    return content.replace(BRACKETED_CHORD_REGEX, (_, chord) => {
-      return `[${transposeChord(chord, semitones, preferFlats)}]`;
-    });
-  }
-
-  const lines = content.split('\n');
-  return lines
+  return content
+    .split('\n')
     .map((line) => {
-      if (isChordLine(line)) {
-        return line.replace(new RegExp(CHORD_REGEX_STR, 'g'), (match) => {
-          return transposeChord(match, semitones, preferFlats);
-        });
-      }
-      return line;
+      const withBrackets = line.replace(/\[([^\]]+)\]/g, (_, chord) => {
+        return `[${transposeChord(chord, semitones, preferFlats)}]`;
+      });
+      if (!isChordLine(line)) return withBrackets;
+      return withBrackets.replace(new RegExp(CHORD_REGEX_STR, 'g'), (match) => {
+        return transposeChord(match, semitones, preferFlats);
+      });
     })
     .join('\n');
 }

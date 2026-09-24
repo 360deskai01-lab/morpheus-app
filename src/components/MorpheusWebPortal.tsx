@@ -623,29 +623,27 @@ export default function MorpheusWebPortal() {
     const nextVotes = totalVotes + 1;
     const newRating = Number(((currentRating * totalVotes + stars) / nextVotes).toFixed(1));
 
-    const { error } = await supabase
-      .from('morfeus_songs')
-      .update({
-        rating: newRating,
-        votes_count: nextVotes,
-        rating_avg: newRating,
-        rating_count: nextVotes,
-      })
-      .eq('id', selectedSong.id);
+    const { data, error } = await supabase.rpc('morfeus_rate_song', {
+      p_song_id: selectedSong.id,
+      p_stars: stars,
+    });
 
     setSubmittingRating(false);
     if (!error) {
+      const rated = (data || {}) as { rating?: number; votes?: number };
+      const appliedRating = Number(rated.rating ?? newRating);
+      const appliedVotes = Number(rated.votes ?? nextVotes);
       setSelectedSong({
         ...selectedSong,
-        rating: newRating,
-        votes_count: nextVotes,
-        rating_avg: newRating,
-        rating_count: nextVotes,
+        rating: appliedRating,
+        votes_count: appliedVotes,
+        rating_avg: appliedRating,
+        rating_count: appliedVotes,
       });
       setSongs((prev) =>
         prev.map((item) =>
           item.id === selectedSong.id
-            ? { ...item, rating: newRating, votes_count: nextVotes, rating_avg: newRating, rating_count: nextVotes }
+            ? { ...item, rating: appliedRating, votes_count: appliedVotes, rating_avg: appliedRating, rating_count: appliedVotes }
             : item
         )
       );
@@ -675,7 +673,7 @@ export default function MorpheusWebPortal() {
   const fetchForumPosts = async () => {
     setLoadingForum(true);
     const { data } = await supabase
-      .from('morfeus_forum_posts')
+      .from('morfeus_forum_topics')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(30);
@@ -684,7 +682,7 @@ export default function MorpheusWebPortal() {
   };
 
   const handleDeleteForumPost = async (id: number) => {
-    const { error } = await supabase.from('morfeus_forum_posts').delete().eq('id', id);
+    const { error } = await supabase.from('morfeus_forum_topics').delete().eq('id', id);
     if (!error) {
       alert('Forum iletisi kaldırıldı.');
       fetchForumPosts();
@@ -724,10 +722,10 @@ export default function MorpheusWebPortal() {
   };
 
   const handleUpdateUserRole = async (userId: string, newTier: string) => {
-    const { error } = await supabase
-      .from('morfeus_profiles')
-      .update({ membership_tier: newTier })
-      .eq('id', userId);
+    const { error } = await supabase.rpc('morfeus_admin_set_tier', {
+      p_profile_id: userId,
+      p_tier: String(newTier || '').toLowerCase(),
+    });
     if (!error) {
       alert(`Kullanıcı yetkisi ${newTier.toUpperCase()} olarak güncellendi.`);
       fetchAllProfiles();
@@ -804,10 +802,7 @@ export default function MorpheusWebPortal() {
     skipUrlWrite.current = false;
 
     if (!options?.fromHistory) {
-      await supabase
-        .from('morfeus_songs')
-        .update({ views: (song.views || 0) + 1 })
-        .eq('id', song.id);
+      await supabase.rpc('morfeus_bump_song_views', { p_song_id: song.id });
     }
   };
 
@@ -878,6 +873,7 @@ export default function MorpheusWebPortal() {
       return;
     }
     let cancelled = false;
+    setPublicChordMap({});
     supabase
       .from('morfeus_public_chords')
       .select('chord_name, instrument, frets, pitches')
@@ -927,8 +923,9 @@ export default function MorpheusWebPortal() {
       const matchesGenre = selectedGenre === 'Tümü' || song.genre === selectedGenre;
 
       let matchesYear = true;
-      const y = parseInt(song.release_year, 10);
-      if (selectedYear === "70'ler") matchesYear = y >= 1970 && y < 1980;
+      const y = parseInt(String(song.release_year ?? ''), 10);
+      if (selectedYear !== 'Tümü' && Number.isNaN(y)) matchesYear = false;
+      else if (selectedYear === "70'ler") matchesYear = y >= 1970 && y < 1980;
       else if (selectedYear === "80'ler") matchesYear = y >= 1980 && y < 1990;
       else if (selectedYear === "90'lar") matchesYear = y >= 1990 && y < 2000;
       else if (selectedYear === "2000'ler") matchesYear = y >= 2000 && y < 2010;
@@ -1607,16 +1604,31 @@ export default function MorpheusWebPortal() {
 
                     <TouchableOpacity
                       style={styles.actionBtnSecondary}
-                      onPress={() => alert(`Paylaşım Kodu: MORPH-${selectedSong.id.slice(0, 8).toUpperCase()}`)}
+                      onPress={async () => {
+                        const shareCode = `MORPH-${String(selectedSong.id).slice(0, 8).toUpperCase()}`;
+                        const { error } = await supabase.from('morfeus_shares').upsert(
+                          {
+                            share_code: shareCode,
+                            payload_type: 'SONG',
+                            payload: { song_id: selectedSong.id, title: selectedSong.title, artist: selectedSong.artist },
+                          },
+                          { onConflict: 'share_code' }
+                        );
+                        if (error) {
+                          alert(`Paylaşım Kodu: ${shareCode}\n(Kayıt tablosu henüz yok; kod yerel.)`);
+                          return;
+                        }
+                        alert(`Paylaşım Kodu: ${shareCode}`);
+                      }}
                     >
                       <Text style={styles.actionBtnTextSec}>🔗 PAYLAŞIM KODU</Text>
                     </TouchableOpacity>
 
                     {isNativePlatform && (
                     <TouchableOpacity
-                      style={[styles.actionBtnPro, (!isUserAdmin && profile?.membership_tier === 'basic') && styles.disabledBtn]}
+                      style={[styles.actionBtnPro, (!isUserAdmin && !isPremiumUser) && styles.disabledBtn]}
                       onPress={() => {
-                        if (!isUserAdmin && (profile?.membership_tier === 'basic' || !user)) {
+                        if (!isUserAdmin && (!isPremiumUser || !user)) {
                           alert('Sahne Modu Single & Band üyelere özeldir. Lütfen paketinizi yükseltin.');
                         } else {
                           setActiveModal('tuner');
@@ -2024,8 +2036,8 @@ export default function MorpheusWebPortal() {
                 <FretboardView
                   chordName={diagramChord || ''}
                   stringsCount={6}
-                  frets={resolveGuitarDiagram(diagramChord || 'Am').frets}
-                  baseFret={resolveGuitarDiagram(diagramChord || 'Am').baseFret}
+                  frets={resolveGuitarDiagram(diagramChord || '').frets}
+                  baseFret={resolveGuitarDiagram(diagramChord || '').baseFret}
                 />
               </View>
               <View style={styles.chordPopupCol}>
@@ -2037,8 +2049,8 @@ export default function MorpheusWebPortal() {
                 <FretboardView
                   chordName={diagramChord || ''}
                   stringsCount={4}
-                  frets={resolveBassDiagram(diagramChord || 'Am').frets}
-                  baseFret={resolveBassDiagram(diagramChord || 'Am').baseFret}
+                  frets={resolveBassDiagram(diagramChord || '').frets}
+                  baseFret={resolveBassDiagram(diagramChord || '').baseFret}
                 />
               </View>
             </View>

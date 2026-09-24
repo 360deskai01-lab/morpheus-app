@@ -1,4 +1,4 @@
-// src/utils/pianoDiagrams.ts
+import { parseChordToken } from './chordDiagrams';
 
 export interface PianoKey {
   note: string;
@@ -89,27 +89,26 @@ const CHORD_INTERVALS: { [key: string]: number[] } = {
   '2': [0, 2, 4, 7],
 };
 
-function normalizeQuality(raw: string): string {
-  const q = raw.replace(/[()]/g, '').trim();
-  if (!q) return '';
-  if (CHORD_INTERVALS[q]) return q;
-  const lower = q.toLowerCase();
-  if (lower === 'maj') return 'maj';
-  if (lower === 'min' || lower === 'mi') return 'm';
-  if (CHORD_INTERVALS[lower]) return lower;
-  return q;
+function intervalsForQuality(quality: string): number[] {
+  if (CHORD_INTERVALS[quality]) return CHORD_INTERVALS[quality];
+  if (quality === 'maj') return CHORD_INTERVALS[''];
+  if (quality === 'min') return CHORD_INTERVALS.m;
+  return CHORD_INTERVALS[quality] || CHORD_INTERVALS[''];
 }
 
 export function getPianoKeysForChord(chordName: string): number[] {
   if (!chordName) return [];
 
-  const token = chordName.split('/')[0].trim();
-  const match = token.match(/^([A-G][b#]?)(.*)$/);
-  if (!match) return [];
+  const parsed = parseChordToken(chordName);
+  if (!parsed) return [];
 
-  const rootIndex = NOTE_TO_INDEX[match[1]];
+  const rootIndex = NOTE_TO_INDEX[parsed.root];
   if (rootIndex === undefined) return [];
 
-  const intervals = CHORD_INTERVALS[normalizeQuality(match[2])] || CHORD_INTERVALS[''];
-  return Array.from(new Set(intervals.map((interval) => (rootIndex + interval) % 12)));
+  const intervals = intervalsForQuality(parsed.quality);
+  const pitches = intervals.map((interval) => (rootIndex + interval) % 12);
+  const bass = String(chordName).split('/')[1]?.trim();
+  const bassIndex = bass ? NOTE_TO_INDEX[bass] : undefined;
+  if (bassIndex !== undefined) pitches.push(bassIndex);
+  return Array.from(new Set(pitches));
 }

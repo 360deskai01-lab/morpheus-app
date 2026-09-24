@@ -46,9 +46,16 @@ export async function fetchInboxItems(userId: string): Promise<InboxItem[]> {
 export async function sendSupportMessage(userId: string, body: string): Promise<void> {
   const clean = body.trim();
   if (!clean) throw new Error('Mesaj boş olamaz.');
+
+  const { data: master } = await supabase
+    .from('morfeus_profiles')
+    .select('id')
+    .eq('email', 'master@360bct.com')
+    .maybeSingle();
+
   const { error } = await supabase.from('morfeus_messages').insert({
     sender_id: userId,
-    recipient_id: userId,
+    recipient_id: master?.id || userId,
     subject: 'Sahne notu / Destek',
     body: clean,
   });
