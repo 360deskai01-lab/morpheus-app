@@ -76,7 +76,7 @@ export default function SubscriptionModal({
         plan,
       });
 
-      alert('Tebrikler! Morpheus Premium hesabınız aktif edildi. Tüm kilitler açıldı.');
+      alert('Premium talebiniz yöneticiye iletildi. Onay sonrası hesabınız yükseltilir.');
       onSuccess();
       onClose();
     } catch (err: any) {

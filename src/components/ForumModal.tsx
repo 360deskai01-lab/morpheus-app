@@ -33,6 +33,7 @@ import {
   ForumReply,
 } from '../services/forumService';
 import { UserProfile } from '../services/authService';
+import { normalizeTier } from '../utils/membership';
 
 interface Props {
   visible: boolean;
@@ -275,7 +276,7 @@ export default function ForumModal({ visible, onClose, currentUser, onOpenAuth, 
                       {activeTopic.author?.is_master_admin && (
                         <View style={styles.masterPill}><Text style={styles.pillText}>ADMIN</Text></View>
                       )}
-                      {activeTopic.author?.membership_tier === 'PREMIUM' && (
+                      {normalizeTier(activeTopic.author?.membership_tier) === 'premium' && (
                         <View style={styles.proPill}><Text style={styles.pillText}>PRO</Text></View>
                       )}
                     </View>
@@ -303,7 +304,7 @@ export default function ForumModal({ visible, onClose, currentUser, onOpenAuth, 
                         {rep.author?.is_master_admin && (
                           <View style={styles.masterPill}><Text style={styles.pillText}>ADMIN</Text></View>
                         )}
-                        {rep.author?.membership_tier === 'PREMIUM' && (
+                        {normalizeTier(rep.author?.membership_tier) === 'premium' && (
                           <View style={styles.proPill}><Text style={styles.pillText}>PRO</Text></View>
                         )}
                       </View>

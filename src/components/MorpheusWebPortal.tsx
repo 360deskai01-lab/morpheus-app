@@ -42,6 +42,7 @@ import CenterTabs from './portal/CenterTabs';
 import PlaylistsPanel from './portal/PlaylistsPanel';
 import InboxPanel from './portal/InboxPanel';
 import { fetchMyCorrections } from '../services/inboxService';
+import { fetchSharedSongByCode } from '../services/shareService';
 import {
   type CenterPane,
   type MobileShelf,
@@ -705,13 +706,17 @@ export default function MorpheusWebPortal() {
     setSavingEvent(true);
     const { error } = await supabase.from('morfeus_events').insert({
       title: eventTitle,
+      description: '',
       city: eventCity,
       event_date: eventDate,
-      venue: eventVenue
+      venue: eventVenue,
+      ticket_price: '0',
+      status: 'PENDING',
+      created_by: user?.id || null,
     });
     setSavingEvent(false);
     if (!error) {
-      alert('Etkinlik takvime eklendi!');
+      alert('Etkinlik gönderildi. Yayın için yönetici onayı bekleniyor.');
       setEventTitle('');
       setEventDate('');
       setEventVenue('');
@@ -805,6 +810,26 @@ export default function MorpheusWebPortal() {
       await supabase.rpc('morfeus_bump_song_views', { p_song_id: song.id });
     }
   };
+
+  useEffect(() => {
+    const code = searchQuery.trim().toUpperCase();
+    if (!/^MORPH-[0-9A-F]{8}$/.test(code) || !songs.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const payload = await fetchSharedSongByCode(code);
+        const found = songs.find((song) => song.id === payload?.song_id);
+        if (cancelled || !found) return;
+        await handleSelectSong(found);
+        setSearchQuery('');
+      } catch {
+        /* kod yoksa arama kutusunda kalsın */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery, songs]);
 
   const openInfoPage = (page: InfoPageId) => {
     setInfoPageId(page);
@@ -1605,20 +1630,25 @@ export default function MorpheusWebPortal() {
                     <TouchableOpacity
                       style={styles.actionBtnSecondary}
                       onPress={async () => {
+                        if (!user) {
+                          handleOpenAuth();
+                          return;
+                        }
                         const shareCode = `MORPH-${String(selectedSong.id).slice(0, 8).toUpperCase()}`;
                         const { error } = await supabase.from('morfeus_shares').upsert(
                           {
                             share_code: shareCode,
                             payload_type: 'SONG',
                             payload: { song_id: selectedSong.id, title: selectedSong.title, artist: selectedSong.artist },
+                            created_by: user?.id || null,
                           },
                           { onConflict: 'share_code' }
                         );
                         if (error) {
-                          alert(`Paylaşım Kodu: ${shareCode}\n(Kayıt tablosu henüz yok; kod yerel.)`);
+                          alert(`Paylaşım kaydı yapılamadı: ${error.message}\nKod: ${shareCode}`);
                           return;
                         }
-                        alert(`Paylaşım Kodu: ${shareCode}`);
+                        alert(`Paylaşım Kodu: ${shareCode}\nArama kutusuna yapıştırarak açılır.`);
                       }}
                     >
                       <Text style={styles.actionBtnTextSec}>🔗 PAYLAŞIM KODU</Text>

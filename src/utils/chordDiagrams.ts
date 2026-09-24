@@ -72,6 +72,43 @@ export function parseChordToken(raw: string): { root: string; quality: string } 
   return { root, quality };
 }
 
+function slashBassRoot(raw: string): string | null {
+  const part = String(raw || '').split('/')[1]?.trim();
+  if (!part) return null;
+  const match = part.match(/^([A-G][b#]?)/);
+  return match ? canonRoot(match[1]) : null;
+}
+
+const PITCH: Record<string, number> = {
+  C: 0, 'C#': 1, D: 2, Eb: 3, E: 4, F: 5, 'F#': 6, G: 7, Ab: 8, A: 9, Bb: 10, B: 11,
+};
+
+/** E A D G B E */
+const GUITAR_OPEN_PITCH = [4, 9, 2, 7, 11, 4];
+
+/** UG: C/G, D/F#, G/B — bası 6. veya 5. tele en düşük perdeyle koy */
+function applyGuitarSlashBass(frets: number[], bassRoot: string): number[] {
+  const target = PITCH[bassRoot];
+  if (target === undefined) return frets;
+
+  let bestString = -1;
+  let bestFret = 99;
+  for (let stringIndex = 0; stringIndex <= 1; stringIndex += 1) {
+    const fret = (target - GUITAR_OPEN_PITCH[stringIndex] + 12) % 12;
+    if (fret > 7) continue;
+    if (fret < bestFret) {
+      bestFret = fret;
+      bestString = stringIndex;
+    }
+  }
+  if (bestString < 0) return frets;
+
+  const next = [...frets];
+  next[bestString] = bestFret;
+  for (let muted = 0; muted < bestString; muted += 1) next[muted] = -1;
+  return next;
+}
+
 function shiftFrets(shape: number[], delta: number): number[] {
   return shape.map((fret) => (fret < 0 ? fret : fret + delta));
 }
@@ -201,18 +238,26 @@ export function toDisplayFrets(frets: number[]): FretDiagram {
 const MUTED_GUITAR = [-1, -1, -1, -1, -1, -1];
 const MUTED_BASS = [-1, -1, -1, -1];
 
-export function guitarDiagramFor(chord: string): FretDiagram {
+function guitarFretsAbsolute(chord: string): number[] | null {
   const parsed = parseChordToken(chord);
-  if (!parsed) return { frets: MUTED_GUITAR, baseFret: 1 };
-  const frets = guitarFromShapes(parsed.root, parsed.quality);
+  if (!parsed) return null;
+  let frets = guitarFromShapes(parsed.root, parsed.quality);
+  if (!frets) return null;
+  const bass = slashBassRoot(chord);
+  if (bass && bass !== parsed.root) {
+    frets = applyGuitarSlashBass(frets, bass);
+  }
+  return frets;
+}
+
+export function guitarDiagramFor(chord: string): FretDiagram {
+  const frets = guitarFretsAbsolute(chord);
   if (!frets) return { frets: MUTED_GUITAR, baseFret: 1 };
   return toDisplayFrets(frets);
 }
 
 export function guitarFretsFor(chord: string): number[] {
-  const parsed = parseChordToken(chord);
-  if (!parsed) return MUTED_GUITAR;
-  return guitarFromShapes(parsed.root, parsed.quality) || MUTED_GUITAR;
+  return guitarFretsAbsolute(chord) || MUTED_GUITAR;
 }
 
 function bassPower(rootFretOnE: number | null, rootFretOnA: number | null, quality: string): number[] {
@@ -277,22 +322,27 @@ const BASS_OPEN: Record<string, number[]> = {
   Ebm: [-1, 6, 8, 6],
 };
 
-export function bassDiagramFor(chord: string): FretDiagram {
-  const parsed = parseChordToken(chord);
-  if (!parsed) return { frets: MUTED_BASS, baseFret: 1 };
+function bassFretsAbsolute(chord: string): number[] | null {
+  const bass = slashBassRoot(chord);
+  const parsed = parseChordToken(bass || chord);
+  if (!parsed) return null;
   const openKey = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality === 'min' ? 'm' : parsed.quality}`;
   const openAlt = parsed.quality === 'maj' ? parsed.root : parsed.quality === 'min' ? `${parsed.root}m` : '';
-  const known = BASS_OPEN[openKey] || BASS_OPEN[openAlt];
-  if (known) return toDisplayFrets(known);
-  return toDisplayFrets(bassPower(E_ROOT_FRET[parsed.root] ?? null, A_ROOT_FRET[parsed.root] ?? null, parsed.quality));
+  return (
+    BASS_OPEN[openKey] ||
+    BASS_OPEN[openAlt] ||
+    bassPower(E_ROOT_FRET[parsed.root] ?? null, A_ROOT_FRET[parsed.root] ?? null, parsed.quality)
+  );
+}
+
+export function bassDiagramFor(chord: string): FretDiagram {
+  const frets = bassFretsAbsolute(chord);
+  if (!frets) return { frets: MUTED_BASS, baseFret: 1 };
+  return toDisplayFrets(frets);
 }
 
 export function bassFretsFor(chord: string): number[] {
-  const parsed = parseChordToken(chord);
-  if (!parsed) return MUTED_BASS;
-  const openKey = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality === 'min' ? 'm' : parsed.quality}`;
-  const openAlt = parsed.quality === 'maj' ? parsed.root : parsed.quality === 'min' ? `${parsed.root}m` : '';
-  return BASS_OPEN[openKey] || BASS_OPEN[openAlt] || bassPower(E_ROOT_FRET[parsed.root] ?? null, A_ROOT_FRET[parsed.root] ?? null, parsed.quality);
+  return bassFretsAbsolute(chord) || MUTED_BASS;
 }
 
 export const GUITAR_CHORD_FRETS: { [key: string]: number[] } = new Proxy(
