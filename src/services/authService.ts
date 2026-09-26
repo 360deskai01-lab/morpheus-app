@@ -12,7 +12,8 @@ export interface UserProfile {
   stage_badge?: string | null;
   chord_palette?: string | null;
   cloud_backup_at?: string | null;
-  membership_tier: 'FREE' | 'BASIC' | 'PREMIUM';
+  membership_tier: string;
+  premium_until?: string | null;
   is_master_admin: boolean;
   created_at?: string;
 }
@@ -144,7 +145,7 @@ export async function fetchAllProfiles(): Promise<UserProfile[]> {
   return data;
 }
 
-export async function updateUserMembershipTier(profileId: string, tier: 'FREE' | 'BASIC' | 'PREMIUM') {
+export async function updateUserMembershipTier(profileId: string, tier: string) {
   const { error } = await supabase.rpc('morfeus_admin_set_tier', {
     p_profile_id: profileId,
     p_tier: tier.toLowerCase(),

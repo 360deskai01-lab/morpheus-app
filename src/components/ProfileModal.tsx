@@ -30,6 +30,7 @@ interface Props {
   chordPalette?: string | null;
   cloudBackupAt?: string | null;
   membershipTier?: string | null;
+  premiumUntil?: string | null;
   isAdmin?: boolean;
   playlistCount?: number;
   onBackToStage: () => void;
@@ -48,6 +49,7 @@ export default function ProfileStage({
   chordPalette,
   cloudBackupAt,
   membershipTier,
+  premiumUntil,
   isAdmin,
   playlistCount = 0,
   onBackToStage,
@@ -56,7 +58,7 @@ export default function ProfileStage({
   onProfileUpdated,
 }: Props) {
   const tier = displayTier(membershipTier, isAdmin);
-  const upper = isUpperMembership(membershipTier, isAdmin);
+  const upper = isUpperMembership(membershipTier, isAdmin, premiumUntil);
   const badge = resolveBadge(stageBadge);
   const [nameValue, setNameValue] = useState(fullName || '');
   const [phoneValue, setPhoneValue] = useState(phone || '');
@@ -181,6 +183,9 @@ export default function ProfileStage({
             <View style={[styles.tierChip, { borderColor: badge.color }]}>
               <Text style={[styles.tierText, { color: badge.color }]}>{tier} · {badge.label}</Text>
             </View>
+            {premiumUntil ? (
+              <Text style={styles.statusOk}>Premium bitiş: {new Date(premiumUntil).toLocaleDateString('tr-TR')}</Text>
+            ) : null}
           </View>
         </View>
 

@@ -28,6 +28,7 @@ import {
   CheckCircle,
   XCircle,
   Search,
+  CircleDollarSign,
 } from 'lucide-react-native';
 import {
   AdminModule,
@@ -58,13 +59,21 @@ import {
   updateProductStatusAdmin,
   StoreProduct,
 } from '../services/storeService';
+import {
+  fetchBillingPlans,
+  formatPlanPrice,
+  grantBillingPlan,
+  saveBillingPlan,
+  tlToKurus,
+  type BillingPlan,
+} from '../services/billingService';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
 }
 
-type AdminTab = 'ROLES' | 'USERS' | 'SONGS' | 'EVENTS' | 'COURSES' | 'STORE';
+type AdminTab = 'ROLES' | 'USERS' | 'SONGS' | 'EVENTS' | 'COURSES' | 'STORE' | 'PRICING';
 
 const MODULES: { key: AdminModule; label: string; icon: any }[] = [
   { key: 'PORTAL', label: 'Web Portalı & Akorlar', icon: Globe },
@@ -93,6 +102,9 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
   const [adminProducts, setAdminProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [billingPlans, setBillingPlans] = useState<BillingPlan[]>([]);
+  const [billingDrafts, setBillingDrafts] = useState<Record<string, { tl: string; days: string }>>({});
+  const [savingPrices, setSavingPrices] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -114,6 +126,16 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
     setAdminEvents(eventData);
     setAdminCourses(courseData);
     setAdminProducts(productData);
+    const planRows = await fetchBillingPlans();
+    setBillingPlans(planRows);
+    const drafts: Record<string, { tl: string; days: string }> = {};
+    planRows.forEach((row) => {
+      drafts[row.plan_code] = {
+        tl: String(row.amount_kurus / 100),
+        days: String(row.period_days),
+      };
+    });
+    setBillingDrafts(drafts);
     if (profileData.length > 0) {
       selectUser(profileData[0]);
     }
@@ -156,15 +178,36 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
     }
   };
 
-  const handleUpdateTier = async (userId: string, newTier: 'FREE' | 'BASIC' | 'PREMIUM') => {
+  const handleUpdateTier = async (userId: string, newTier: 'basic' | 'net' | 'napp' | 'band') => {
     try {
-      await updateUserMembershipTier(userId, newTier);
+      if (newTier === 'basic') {
+        await updateUserMembershipTier(userId, 'basic');
+      } else {
+        await grantBillingPlan(userId, `${newTier}_monthly`);
+      }
       setProfiles((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, membership_tier: newTier } : u))
       );
     } catch (err: any) {
       alert('Üyelik güncellenemedi: ' + err.message);
     }
+  };
+
+  const handleSavePrices = async () => {
+    setSavingPrices(true);
+    try {
+      for (const plan of billingPlans) {
+        const draft = billingDrafts[plan.plan_code];
+        if (!draft) continue;
+        await saveBillingPlan(plan.plan_code, tlToKurus(draft.tl), parseInt(draft.days, 10) || plan.period_days, plan.title);
+      }
+      const rows = await fetchBillingPlans();
+      setBillingPlans(rows);
+      alert('Fiyatlar kaydedildi.');
+    } catch (err: any) {
+      alert('Fiyat kaydı: ' + err.message);
+    }
+    setSavingPrices(false);
   };
 
   const handleDeleteUser = async (user: UserProfile) => {
@@ -304,6 +347,16 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
                 <ShoppingBag color={activeTab === 'STORE' ? '#38BDF8' : '#64748B'} size={13} />
                 <Text style={[styles.tabText, activeTab === 'STORE' && styles.tabTextActive]}>
                   Pazar ({adminProducts.filter(p => p.status === 'PENDING').length})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.tabBtn, activeTab === 'PRICING' && styles.tabBtnActive]}
+                onPress={() => setActiveTab('PRICING')}
+              >
+                <CircleDollarSign color={activeTab === 'PRICING' ? '#38BDF8' : '#64748B'} size={13} />
+                <Text style={[styles.tabText, activeTab === 'PRICING' && styles.tabTextActive]}>
+                  Fiyatlar
                 </Text>
               </TouchableOpacity>
             </View>
@@ -462,23 +515,23 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
                         </View>
 
                         <View style={styles.tierButtonGroup}>
-                          {(['FREE', 'BASIC', 'PREMIUM'] as const).map((t) => (
+                          {(['basic', 'net', 'napp', 'band'] as const).map((t) => (
                             <TouchableOpacity
                               key={t}
                               disabled={user.is_master_admin}
                               style={[
                                 styles.tierOptionBtn,
-                                user.membership_tier === t && styles.tierOptionBtnActive,
+                                (user.membership_tier || '').toLowerCase() === t && styles.tierOptionBtnActive,
                               ]}
                               onPress={() => handleUpdateTier(user.id, t)}
                             >
                               <Text
                                 style={[
                                   styles.tierOptionText,
-                                  user.membership_tier === t && styles.tierOptionTextActive,
+                                  (user.membership_tier || '').toLowerCase() === t && styles.tierOptionTextActive,
                                 ]}
                               >
-                                {t}
+                                {t.toUpperCase()}
                               </Text>
                             </TouchableOpacity>
                           ))}
@@ -696,6 +749,55 @@ export default function AdminPanelModal({ visible, onClose }: Props) {
                       <Text style={styles.emptyText}>Henüz onay bekleyen ekipman ilanı yok.</Text>
                     )}
                   </ScrollView>
+                </View>
+              )}
+
+              {activeTab === 'PRICING' && (
+                <View style={styles.fullTabContent}>
+                  <Text style={styles.rowSubText}>
+                    Net / Napp / Band — aylık ve yıllık (TL). PayTR token ucu bu kayıtları okur. Band 10 kişilik.
+                  </Text>
+                  {billingPlans.map((plan) => {
+                    const draft = billingDrafts[plan.plan_code] || {
+                      tl: String(plan.amount_kurus / 100),
+                      days: String(plan.period_days),
+                    };
+                    return (
+                      <View key={plan.plan_code} style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                        <View style={{ flex: 1.6 }}>
+                          <Text style={styles.permLabel}>{plan.title}</Text>
+                          <TextInput
+                            style={styles.searchInput}
+                            value={draft.tl}
+                            onChangeText={(value) =>
+                              setBillingDrafts((prev) => ({ ...prev, [plan.plan_code]: { ...draft, tl: value } }))
+                            }
+                            keyboardType="decimal-pad"
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.permLabel}>Gün</Text>
+                          <TextInput
+                            style={styles.searchInput}
+                            value={draft.days}
+                            onChangeText={(value) =>
+                              setBillingDrafts((prev) => ({ ...prev, [plan.plan_code]: { ...draft, days: value } }))
+                            }
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                  <TouchableOpacity style={styles.approveBtn} onPress={handleSavePrices} disabled={savingPrices}>
+                    <Text style={styles.actionBtnText}>{savingPrices ? 'Kaydediliyor...' : 'Fiyatları kaydet'}</Text>
+                  </TouchableOpacity>
+                  {billingPlans.map((plan) => (
+                    <Text key={plan.plan_code} style={styles.rowSubText}>
+                      {plan.title}: {formatPlanPrice(plan.amount_kurus)} / {plan.period_days} gün
+                      {plan.seat_count > 1 ? ` · ${plan.seat_count} koltuk` : ''}
+                    </Text>
+                  ))}
                 </View>
               )}
             </View>

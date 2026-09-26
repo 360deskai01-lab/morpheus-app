@@ -23,19 +23,66 @@ export function isHubPane(pane: CenterPane): boolean {
 
 export type MobileShelf = 'library' | 'stage' | 'account';
 
+export type MemberTier = 'basic' | 'net' | 'napp' | 'band' | 'admin';
+
 export function normalizeTier(tier?: string | null): string {
-  return (tier || 'basic').toLowerCase();
+  const t = (tier || 'basic').toLowerCase();
+  if (t === 'premium') return 'napp';
+  if (t === 'free') return 'basic';
+  return t;
 }
 
-export function isUpperMembership(tier?: string | null, isAdmin?: boolean): boolean {
+function entitlementOpen(premiumUntil?: string | null): boolean {
+  if (!premiumUntil) return true;
+  const until = new Date(premiumUntil).getTime();
+  return Number.isFinite(until) && until > Date.now();
+}
+
+export function isWebEntitled(
+  tier?: string | null,
+  premiumUntil?: string | null,
+  isAdmin?: boolean
+): boolean {
   if (isAdmin) return true;
   const t = normalizeTier(tier);
-  return t !== 'basic' && t !== 'free';
+  if (t !== 'net' && t !== 'napp' && t !== 'band') return false;
+  return entitlementOpen(premiumUntil);
+}
+
+export function isAppEntitled(
+  tier?: string | null,
+  premiumUntil?: string | null,
+  isAdmin?: boolean
+): boolean {
+  if (isAdmin) return true;
+  const t = normalizeTier(tier);
+  if (t !== 'napp' && t !== 'band') return false;
+  return entitlementOpen(premiumUntil);
+}
+
+export function isPremiumActive(
+  tier?: string | null,
+  premiumUntil?: string | null,
+  isAdmin?: boolean
+): boolean {
+  return isWebEntitled(tier, premiumUntil, isAdmin);
+}
+
+export function isUpperMembership(
+  tier?: string | null,
+  isAdmin?: boolean,
+  premiumUntil?: string | null
+): boolean {
+  return isWebEntitled(tier, premiumUntil, isAdmin);
 }
 
 export function displayTier(tier?: string | null, isAdmin?: boolean): string {
   if (isAdmin) return 'ADMIN';
-  return (tier || 'BASIC').toUpperCase();
+  const t = normalizeTier(tier);
+  if (t === 'net') return 'NET';
+  if (t === 'napp') return 'NAPP';
+  if (t === 'band') return 'BAND';
+  return 'BASIC';
 }
 
 export const STAGE_BADGES = [

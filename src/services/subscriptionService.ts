@@ -1,23 +1,13 @@
 import { supabase } from '../lib/supabase';
+import { fetchBillingPlans, type BillingPlan } from './billingService';
 
-export interface PaymentDetails {
-  cardHolder: string;
-  cardNumber: string;
-  expiryDate: string;
-  cvv: string;
-  plan: 'MONTHLY' | 'ANNUAL';
+export type { BillingPlan };
+
+export async function loadCheckoutPlans(): Promise<BillingPlan[]> {
+  return fetchBillingPlans();
 }
 
-export async function processPremiumSubscription(
-  userId: string,
-  details: PaymentDetails
-): Promise<{ success: boolean; message: string }> {
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  if (!details.cardHolder.trim() || details.cardNumber.replace(/\s/g, '').length < 16) {
-    throw new Error('Geçerli bir kart sahibi ve 16 haneli kart numarası giriniz.');
-  }
-
+export async function requestPlanUpgrade(userId: string, planCode: string): Promise<void> {
   const { data: master } = await supabase
     .from('morfeus_profiles')
     .select('id')
@@ -27,16 +17,9 @@ export async function processPremiumSubscription(
   const { error } = await supabase.from('morfeus_messages').insert({
     sender_id: userId,
     recipient_id: master?.id || userId,
-    subject: `Premium talep (${details.plan})`,
-    body: 'Kart bilgisi saklanmadı. Onay sonrası yönetici üyelik seviyesini tanımlar.',
+    subject: `Üyelik talep (${planCode})`,
+    body: 'PayTR token ucu yanıt vermedi. Yönetici planı elle tanımlayabilir.',
   });
 
-  if (error) {
-    throw new Error('Talep iletilemedi: ' + error.message);
-  }
-
-  return {
-    success: true,
-    message: 'Premium talebiniz yöneticiye iletildi. Onay sonrası hesabınız yükseltilir.',
-  };
+  if (error) throw new Error('Talep iletilemedi: ' + error.message);
 }

@@ -44,11 +44,20 @@ import InboxPanel from './portal/InboxPanel';
 import { fetchMyCorrections } from '../services/inboxService';
 import { fetchSharedSongByCode } from '../services/shareService';
 import {
+  expireOverduePremium,
+  fetchBillingPlans,
+  formatPlanPrice,
+  grantBillingPlan,
+  saveBillingPlan,
+  tlToKurus,
+} from '../services/billingService';
+import {
   type CenterPane,
   type MobileShelf,
-  displayTier,
   isHubPane,
-  isUpperMembership,
+  displayTier,
+  isAppEntitled,
+  isWebEntitled,
   resolveBadge,
   resolvePalette,
 } from '../utils/membership';
@@ -156,7 +165,10 @@ export default function MorpheusWebPortal() {
   const [loadingPlaylistSongs, setLoadingPlaylistSongs] = useState(false);
 
   // Admin
-  const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users' | 'forum_mod' | 'events_mod'>('corrections');
+  const [adminTab, setAdminTab] = useState<'corrections' | 'add_song' | 'users' | 'billing' | 'forum_mod' | 'events_mod'>('corrections');
+  const [billingPlans, setBillingPlans] = useState<{ plan_code: string; title: string; amount_kurus: number; period_days: number }[]>([]);
+  const [billingDrafts, setBillingDrafts] = useState<Record<string, { tl: string; days: string }>>({});
+  const [savingBilling, setSavingBilling] = useState(false);
   const [pendingCorrections, setPendingCorrections] = useState<any[]>([]);
   const [allProfiles, setAllProfiles] = useState<any[]>([]);
   const [forumPosts, setForumPosts] = useState<any[]>([]);
@@ -196,6 +208,20 @@ export default function MorpheusWebPortal() {
   useEffect(() => {
     fetchSession();
     fetchSongs();
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.replace(/\/+$/, '');
+      const isPaymentReturn = path === '/odeme/basarili' || path === '/odeme/hata';
+      if (isPaymentReturn && window.top && window.top !== window.self) {
+        window.top.location.href = window.location.href;
+      } else if (path === '/odeme/basarili') {
+        alert('Ödeme alındı. Üyeliğiniz birkaç saniye içinde güncellenir.');
+        fetchSession();
+        replacePortalUrl('/');
+      } else if (path === '/odeme/hata') {
+        alert('Ödeme tamamlanamadı.');
+        replacePortalUrl('/');
+      }
+    }
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
@@ -372,8 +398,10 @@ export default function MorpheusWebPortal() {
     return false;
   }, [user, profile]);
 
-  const isPremiumUser = isUpperMembership(profile?.membership_tier, isUserAdmin);
-  const palette = resolvePalette(isPremiumUser ? profile?.chord_palette : 'classic');
+  const isWebMember = isWebEntitled(profile?.membership_tier, profile?.premium_until, isUserAdmin);
+  const isAppMember = isAppEntitled(profile?.membership_tier, profile?.premium_until, isUserAdmin);
+  const isPremiumUser = isWebMember;
+  const palette = resolvePalette(isWebMember ? profile?.chord_palette : 'classic');
   const headerBadge = resolveBadge(profile?.stage_badge);
 
   const expandHub = (pane: Extract<CenterPane, 'forum' | 'events' | 'courses' | 'store' | 'help'>, page?: InfoPageId) => {
@@ -739,6 +767,45 @@ export default function MorpheusWebPortal() {
     }
   };
 
+  const loadBillingPlans = async () => {
+    const rows = await fetchBillingPlans();
+    setBillingPlans(rows);
+    const drafts: Record<string, { tl: string; days: string }> = {};
+    rows.forEach((row) => {
+      drafts[row.plan_code] = {
+        tl: String(row.amount_kurus / 100),
+        days: String(row.period_days),
+      };
+    });
+    setBillingDrafts(drafts);
+  };
+
+  const handleSaveBilling = async () => {
+    setSavingBilling(true);
+    try {
+      for (const plan of billingPlans) {
+        const draft = billingDrafts[plan.plan_code];
+        if (!draft) continue;
+        await saveBillingPlan(plan.plan_code, tlToKurus(draft.tl), parseInt(draft.days, 10) || plan.period_days, plan.title);
+      }
+      await loadBillingPlans();
+      alert('Plan fiyatları kaydedildi.');
+    } catch (err: any) {
+      alert('Fiyat kaydı: ' + (err.message || 'tablo henüz yok'));
+    }
+    setSavingBilling(false);
+  };
+
+  const handleGrantPlan = async (userId: string, planCode: string) => {
+    try {
+      await grantBillingPlan(userId, planCode);
+      alert(`${planCode} tanımlandı.`);
+      fetchAllProfiles();
+    } catch (err: any) {
+      alert('Atama: ' + (err.message || 'RPC henüz yok'));
+    }
+  };
+
   const handleApproveCorrection = async (item: any) => {
     await supabase
       .from('morfeus_songs')
@@ -1029,10 +1096,12 @@ export default function MorpheusWebPortal() {
         <View style={styles.topNavLeft}>
           <Text style={styles.brandTitle}>MORPHEUS <Text style={styles.brandSub}>v3.6 ULTRA</Text></Text>
           <View style={styles.mainMenuLinks}>
+            {/* PayTR tamamlanınca geri aç: Forum / Etkinlikler / Eğitimler / Mağaza
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('forum')}><Text style={styles.menuBtnText}>FORUM</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('events')}><Text style={styles.menuBtnText}>ETKİNLİKLER</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('courses')}><Text style={styles.menuBtnText}>EĞİTİMLER</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuBtn} onPress={() => setActiveModal('store')}><Text style={styles.menuBtnText}>MAĞAZA</Text></TouchableOpacity>
+            */}
             <TouchableOpacity style={styles.menuBtn} onPress={() => openInfoPage('yardim')}><Text style={styles.menuBtnText}>HELP</Text></TouchableOpacity>
           </View>
         </View>
@@ -1315,6 +1384,7 @@ export default function MorpheusWebPortal() {
                   chordPalette={profile?.chord_palette}
                   cloudBackupAt={profile?.cloud_backup_at}
                   membershipTier={profile?.membership_tier}
+                  premiumUntil={profile?.premium_until}
                   isAdmin={isUserAdmin}
                   playlistCount={playlists.length}
                   onBackToStage={() => setCenterPane('song')}
@@ -1405,6 +1475,7 @@ export default function MorpheusWebPortal() {
                       ['corrections', 'Düzeltmeler'],
                       ['add_song', 'Şarkı Ekle'],
                       ['users', 'Üyeler'],
+                      ['billing', 'Fiyatlar'],
                       ['forum_mod', 'Forum'],
                       ['events_mod', 'Etkinlik'],
                     ] as const).map(([id, label]) => (
@@ -1415,6 +1486,7 @@ export default function MorpheusWebPortal() {
                           setAdminTab(id);
                           if (id === 'corrections') fetchCorrections();
                           if (id === 'users') fetchAllProfiles();
+                          if (id === 'billing') loadBillingPlans();
                           if (id === 'forum_mod') fetchForumPosts();
                           if (id === 'events_mod') fetchEvents();
                         }}
@@ -1441,14 +1513,90 @@ export default function MorpheusWebPortal() {
                         </View>
                       </View>
                     ))
+                  ) : adminTab === 'billing' ? (
+                    <View>
+                      <Text style={styles.modalSubtitle}>Net / Napp / Band — aylık ve yıllık. PayTR token bu tutarları okur.</Text>
+                      {billingPlans.map((plan) => {
+                        const draft = billingDrafts[plan.plan_code] || { tl: String(plan.amount_kurus / 100), days: String(plan.period_days) };
+                        return (
+                          <View key={plan.plan_code} style={[styles.formRow, isMobile && { flexDirection: 'column' }]}>
+                            <View style={{ flex: 1.4 }}>
+                              <Text style={styles.formLabel}>{plan.title}</Text>
+                              <TextInput
+                                style={styles.formInput}
+                                value={draft.tl}
+                                onChangeText={(value) =>
+                                  setBillingDrafts((prev) => ({ ...prev, [plan.plan_code]: { ...draft, tl: value } }))
+                                }
+                                keyboardType="decimal-pad"
+                                placeholderTextColor="#64748b"
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.formLabel}>Gün</Text>
+                              <TextInput
+                                style={styles.formInput}
+                                value={draft.days}
+                                onChangeText={(value) =>
+                                  setBillingDrafts((prev) => ({ ...prev, [plan.plan_code]: { ...draft, days: value } }))
+                                }
+                                keyboardType="number-pad"
+                                placeholderTextColor="#64748b"
+                              />
+                            </View>
+                          </View>
+                        );
+                      })}
+                      <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleSaveBilling} disabled={savingBilling}>
+                        <Text style={styles.modalSubmitText}>{savingBilling ? 'Kaydediliyor...' : 'Fiyatları kaydet'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modalCancelBtn, { marginTop: 10 }]}
+                        onPress={async () => {
+                          try {
+                            const n = await expireOverduePremium();
+                            alert(`${n} süresi biten premium basic yapıldı.`);
+                            fetchAllProfiles();
+                          } catch (err: any) {
+                            alert(err.message || 'Süre kontrolü çalışmadı.');
+                          }
+                        }}
+                      >
+                        <Text style={styles.modalCancelText}>Süresi bitenleri düşür</Text>
+                      </TouchableOpacity>
+                      {billingPlans.map((plan) => (
+                        <Text key={plan.plan_code} style={styles.tdTextSub}>
+                          {plan.title}: {formatPlanPrice(plan.amount_kurus)} / {plan.period_days} gün
+                        </Text>
+                      ))}
+                    </View>
                   ) : adminTab === 'users' ? (
                     loadingProfiles ? <ActivityIndicator color="#8b5cf6" /> : allProfiles.map((p) => (
                       <View key={p.id} style={styles.tableBodyRow}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.tdTextEmail}>{p.email}</Text>
                           <Text style={styles.tdTextSub}>{p.full_name || 'İsimsiz'}</Text>
+                          {p.premium_until ? (
+                            <Text style={styles.tdTextSub}>Bitiş: {new Date(p.premium_until).toLocaleDateString('tr-TR')}</Text>
+                          ) : null}
                         </View>
                         <Text style={styles.tdBadge}>{p.membership_tier?.toUpperCase()}</Text>
+                        {!p.is_master_admin && (
+                          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', maxWidth: 260, justifyContent: 'flex-end' }}>
+                            <TouchableOpacity style={styles.corrApproveBtn} onPress={() => handleGrantPlan(p.id, 'net_monthly')}>
+                              <Text style={styles.corrBtnText}>Net</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.corrApproveBtn} onPress={() => handleGrantPlan(p.id, 'napp_monthly')}>
+                              <Text style={styles.corrBtnText}>Napp</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.corrApproveBtn} onPress={() => handleGrantPlan(p.id, 'band_monthly')}>
+                              <Text style={styles.corrBtnText}>Band</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.corrRejectBtn} onPress={() => handleUpdateUserRole(p.id, 'basic')}>
+                              <Text style={styles.corrBtnTextRed}>Basic</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
                       </View>
                     ))
                   ) : (
@@ -1656,10 +1804,10 @@ export default function MorpheusWebPortal() {
 
                     {isNativePlatform && (
                     <TouchableOpacity
-                      style={[styles.actionBtnPro, (!isUserAdmin && !isPremiumUser) && styles.disabledBtn]}
+                      style={[styles.actionBtnPro, (!isUserAdmin && !isAppMember) && styles.disabledBtn]}
                       onPress={() => {
-                        if (!isUserAdmin && (!isPremiumUser || !user)) {
-                          alert('Sahne Modu Single & Band üyelere özeldir. Lütfen paketinizi yükseltin.');
+                        if (!isUserAdmin && (!isAppMember || !user)) {
+                          alert('Sahne Modu Napp ve Band üyelere özeldir.');
                         } else {
                           setActiveModal('tuner');
                         }
@@ -1869,11 +2017,22 @@ export default function MorpheusWebPortal() {
                   <View style={styles.memberCard}>
                     <Text style={styles.memberName}>{user ? user.email : 'Kayıtsız Ziyaretçi'}</Text>
                     <Text style={styles.memberTier}>
-                      {user ? (isUserAdmin ? 'ADMIN' : (profile?.membership_tier?.toUpperCase() || 'BASIC')) : 'ZİYARETÇİ'}
+                      {user ? displayTier(profile?.membership_tier, isUserAdmin) : 'ZİYARETÇİ'}
                     </Text>
+                    {isWebMember && profile?.premium_until ? (
+                      <Text style={styles.tdTextSub}>Bitiş: {new Date(profile.premium_until).toLocaleDateString('tr-TR')}</Text>
+                    ) : null}
                   </View>
 
                   <View style={styles.memberLinks}>
+                    {!isUserAdmin ? (
+                      <TouchableOpacity
+                        style={[styles.memberLinkBtn, { backgroundColor: '#F59E0B' }]}
+                        onPress={() => setActiveModal('subscription')}
+                      >
+                        <Text style={[styles.memberLinkText, { color: '#0F172A', fontWeight: '800' }]}>Üyelik paketleri</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity style={styles.memberLinkBtn} onPress={openProfile}>
                       <Text style={styles.memberLinkText}>👤 Profil Detayları</Text>
                     </TouchableOpacity>
@@ -1950,10 +2109,14 @@ export default function MorpheusWebPortal() {
 
               <View style={styles.footerCol}>
                 <Text style={styles.footerColTitle}>TOPLULUK & MÜZİK</Text>
+                {/* PayTR tamamlanınca geri aç: Forum / Eğitimler / Etkinlikler
                 <TouchableOpacity onPress={() => setActiveModal('forum')}><Text style={styles.footerLink}>Müzisyen Forumu</Text></TouchableOpacity>
+                */}
                 <TouchableOpacity onPress={() => openInfoPage('akor-kilavuzu')}><Text style={styles.footerLink}>Akor Kılavuzu</Text></TouchableOpacity>
+                {/*
                 <TouchableOpacity onPress={() => setActiveModal('courses')}><Text style={styles.footerLink}>Online Eğitimler</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => setActiveModal('events')}><Text style={styles.footerLink}>Canlı Etkinlikler</Text></TouchableOpacity>
+                */}
               </View>
 
               <View style={styles.footerCol}>

@@ -35,6 +35,11 @@ import {
 import { UserProfile } from '../services/authService';
 import { normalizeTier } from '../utils/membership';
 
+function isPaidAuthor(tier?: string | null) {
+  const t = normalizeTier(tier);
+  return t === 'net' || t === 'napp' || t === 'band';
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -276,7 +281,7 @@ export default function ForumModal({ visible, onClose, currentUser, onOpenAuth, 
                       {activeTopic.author?.is_master_admin && (
                         <View style={styles.masterPill}><Text style={styles.pillText}>ADMIN</Text></View>
                       )}
-                      {normalizeTier(activeTopic.author?.membership_tier) === 'premium' && (
+                      {isPaidAuthor(activeTopic.author?.membership_tier) && (
                         <View style={styles.proPill}><Text style={styles.pillText}>PRO</Text></View>
                       )}
                     </View>
@@ -304,7 +309,7 @@ export default function ForumModal({ visible, onClose, currentUser, onOpenAuth, 
                         {rep.author?.is_master_admin && (
                           <View style={styles.masterPill}><Text style={styles.pillText}>ADMIN</Text></View>
                         )}
-                        {normalizeTier(rep.author?.membership_tier) === 'premium' && (
+                        {isPaidAuthor(rep.author?.membership_tier) && (
                           <View style={styles.proPill}><Text style={styles.pillText}>PRO</Text></View>
                         )}
                       </View>

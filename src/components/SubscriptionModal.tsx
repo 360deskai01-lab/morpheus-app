@@ -1,31 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   Modal,
-  TextInput,
   ActivityIndicator,
   TouchableWithoutFeedback,
   ScrollView,
+  Platform,
 } from 'react-native';
+import { X, CheckCircle2, ShieldCheck } from 'lucide-react-native';
+import { requestPlanUpgrade, loadCheckoutPlans } from '../services/subscriptionService';
+import { startPaytrCheckout } from '../services/paytrService';
 import {
-  X,
-  Crown,
-  CheckCircle2,
-  CreditCard,
-  ShieldCheck,
-  Sparkles,
-  Lock,
-} from 'lucide-react-native';
-import { processPremiumSubscription } from '../services/subscriptionService';
-import { UserProfile } from '../services/authService';
+  FALLBACK_PLANS,
+  TIER_CATALOG,
+  formatPlanPrice,
+  planCodeFor,
+  type BillingPeriod,
+  type BillingPlan,
+  type PaidTier,
+} from '../services/billingService';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
-  currentUser: UserProfile | null;
+  currentUser: { id: string; email?: string | null } | null;
   onSuccess: () => void;
   onOpenAuth: () => void;
 }
@@ -37,52 +38,61 @@ export default function SubscriptionModal({
   onSuccess,
   onOpenAuth,
 }: Props) {
-  const [plan, setPlan] = useState<'MONTHLY' | 'ANNUAL'>('ANNUAL');
-  const [cardHolder, setCardHolder] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [period, setPeriod] = useState<BillingPeriod>('annual');
+  const [selectedTier, setSelectedTier] = useState<PaidTier>('napp');
+  const [plans, setPlans] = useState<BillingPlan[]>(FALLBACK_PLANS);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
 
-  const formatCardNumber = (text: string) => {
-    const cleaned = text.replace(/\D/g, '').slice(0, 16);
-    const parts = cleaned.match(/[\s\S]{1,4}/g) || [];
-    setCardNumber(parts.join(' '));
-  };
-
-  const formatExpiry = (text: string) => {
-    const cleaned = text.replace(/\D/g, '').slice(0, 4);
-    if (cleaned.length >= 2) {
-      setExpiryDate(`${cleaned.slice(0, 2)}/${cleaned.slice(2)}`);
-    } else {
-      setExpiryDate(cleaned);
+  useEffect(() => {
+    if (!visible) {
+      setIframeUrl(null);
+      return;
     }
+    setLoadingPlans(true);
+    loadCheckoutPlans()
+      .then(setPlans)
+      .finally(() => setLoadingPlans(false));
+  }, [visible]);
+
+  const selectedPlan = useMemo(() => {
+    const code = planCodeFor(selectedTier, period);
+    return plans.find((row) => row.plan_code === code);
+  }, [plans, selectedTier, period]);
+
+  const priceFor = (tier: PaidTier) => {
+    const code = planCodeFor(tier, period);
+    return plans.find((row) => row.plan_code === code)?.amount_kurus || 0;
   };
 
   const handleCheckout = async () => {
+    if (selectedTier === undefined) return;
     if (!currentUser) {
       onClose();
       onOpenAuth();
       return;
     }
-
+    const planCode = planCodeFor(selectedTier, period);
+    setBusy(true);
     try {
-      setLoading(true);
-      await processPremiumSubscription(currentUser.id, {
-        cardHolder,
-        cardNumber,
-        expiryDate,
-        cvv,
-        plan,
-      });
-
-      alert('Premium talebiniz yöneticiye iletildi. Onay sonrası hesabınız yükseltilir.');
-      onSuccess();
-      onClose();
+      const checkout = await startPaytrCheckout(planCode);
+      setIframeUrl(checkout.iframe_url);
     } catch (err: any) {
-      alert(err.message || 'Ödeme gerçekleştirilemedi.');
+      if (err?.code === 'paytr_not_configured' || String(err.message || '').includes('PayTR')) {
+        try {
+          await requestPlanUpgrade(currentUser.id, planCode);
+          alert('PayTR henüz canlı değil. Talebiniz yöneticiye iletildi.');
+          onSuccess();
+          onClose();
+        } catch (requestErr: any) {
+          alert(requestErr.message || err.message || 'Ödeme başlatılamadı.');
+        }
+      } else {
+        alert(err.message || 'Ödeme başlatılamadı.');
+      }
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
@@ -93,9 +103,9 @@ export default function SubscriptionModal({
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalBox}>
               <View style={styles.header}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Crown color="#F59E0B" size={20} />
-                  <Text style={styles.headerTitle}>Morpheus Premium'a Geçin</Text>
+                <View>
+                  <Text style={styles.headerTitle}>Morpheus Üyelik</Text>
+                  <Text style={styles.headerSub}>Basic · Net · Napp · Band</Text>
                 </View>
                 <TouchableOpacity onPress={onClose}>
                   <X color="#94A3B8" size={18} />
@@ -103,112 +113,86 @@ export default function SubscriptionModal({
               </View>
 
               <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                {/* Plan Seçimi */}
-                <View style={styles.planSelector}>
+                <View style={styles.periodRow}>
                   <TouchableOpacity
-                    style={[styles.planCard, plan === 'ANNUAL' && styles.planCardActive]}
-                    onPress={() => setPlan('ANNUAL')}
+                    style={[styles.periodBtn, period === 'monthly' && styles.periodBtnOn]}
+                    onPress={() => setPeriod('monthly')}
                   >
-                    <View style={styles.bestValueBadge}>
-                      <Text style={styles.bestValueText}>%40 İNDİRİM</Text>
-                    </View>
-                    <Text style={styles.planTitle}>Yıllık Plan</Text>
-                    <Text style={styles.planPrice}>69 TL <Text style={styles.planPeriod}>/ ay</Text></Text>
-                    <Text style={styles.planBilled}>Yıllık 828 TL faturalandırılır</Text>
+                    <Text style={[styles.periodText, period === 'monthly' && styles.periodTextOn]}>Aylık</Text>
                   </TouchableOpacity>
-
                   <TouchableOpacity
-                    style={[styles.planCard, plan === 'MONTHLY' && styles.planCardActive]}
-                    onPress={() => setPlan('MONTHLY')}
+                    style={[styles.periodBtn, period === 'annual' && styles.periodBtnOn]}
+                    onPress={() => setPeriod('annual')}
                   >
-                    <Text style={styles.planTitle}>Aylık Plan</Text>
-                    <Text style={styles.planPrice}>119 TL <Text style={styles.planPeriod}>/ ay</Text></Text>
-                    <Text style={styles.planBilled}>İstediğiniz zaman iptal edin</Text>
+                    <Text style={[styles.periodText, period === 'annual' && styles.periodTextOn]}>Yıllık</Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* Özellik Listesi */}
-                <View style={styles.featuresBox}>
-                  <View style={styles.featureItem}>
-                    <Sparkles color="#F59E0B" size={14} />
-                    <Text style={styles.featureText}>Sınırsız Gemini 3.6 AI Tarz Aranjmanı</Text>
+                {loadingPlans ? (
+                  <ActivityIndicator color="#F59E0B" style={{ marginVertical: 20 }} />
+                ) : (
+                  <View style={styles.grid}>
+                    {TIER_CATALOG.map((pack) => {
+                      const paid = pack.tier !== 'basic';
+                      const active = paid && selectedTier === pack.tier;
+                      return (
+                        <TouchableOpacity
+                          key={pack.tier}
+                          style={[styles.pack, active && styles.packOn, pack.tier === 'napp' && styles.packFeatured]}
+                          onPress={() => paid && setSelectedTier(pack.tier)}
+                          disabled={!paid}
+                        >
+                          {pack.tier === 'napp' ? (
+                            <Text style={styles.featuredLabel}>ÖNERİLEN</Text>
+                          ) : null}
+                          <Text style={styles.packName}>{pack.name}</Text>
+                          <Text style={styles.packTag}>{pack.tagline}</Text>
+                          <Text style={styles.packPrice}>
+                            {paid ? formatPlanPrice(priceFor(pack.tier)) : '0 TL'}
+                          </Text>
+                          <Text style={styles.packPeriod}>{paid ? (period === 'annual' ? '/ yıl' : '/ ay') : 'süresiz'}</Text>
+                          {pack.features.map((line) => (
+                            <View key={line} style={styles.featRow}>
+                              <CheckCircle2 color="#34D399" size={12} />
+                              <Text style={styles.featText}>{line}</Text>
+                            </View>
+                          ))}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-                  <View style={styles.featureItem}>
-                    <CheckCircle2 color="#34D399" size={14} />
-                    <Text style={styles.featureText}>Gitar, Bas ve Piyano için tam akor şemaları</Text>
+                )}
+
+                {iframeUrl && Platform.OS === 'web' ? (
+                  <View style={styles.iframeWrap}>
+                    {React.createElement('iframe', {
+                      title: 'PayTR',
+                      src: iframeUrl,
+                      style: { width: '100%', height: 420, border: 0, borderRadius: 8, background: '#fff' },
+                    })}
                   </View>
-                  <View style={styles.featureItem}>
-                    <CheckCircle2 color="#34D399" size={14} />
-                    <Text style={styles.featureText}>Portal ve Sahne Modu'nda 0 Reklam deneyimi</Text>
-                  </View>
-                </View>
-
-                {/* Kart Bilgileri */}
-                <View style={styles.formSection}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <CreditCard color="#94A3B8" size={14} />
-                    <Text style={styles.formSectionTitle}>Ödeme Bilgileri</Text>
-                  </View>
-
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Kart Üzerindeki İsim"
-                    placeholderTextColor="#64748B"
-                    value={cardHolder}
-                    onChangeText={setCardHolder}
-                  />
-
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Kart Numarası (16 Hane)"
-                    placeholderTextColor="#64748B"
-                    value={cardNumber}
-                    onChangeText={formatCardNumber}
-                    keyboardType="numeric"
-                  />
-
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TextInput
-                      style={[styles.input, { flex: 1 }]}
-                      placeholder="AA/YY"
-                      placeholderTextColor="#64748B"
-                      value={expiryDate}
-                      onChangeText={formatExpiry}
-                      keyboardType="numeric"
-                    />
-                    <TextInput
-                      style={[styles.input, { flex: 1 }]}
-                      placeholder="CVV"
-                      placeholderTextColor="#64748B"
-                      value={cvv}
-                      onChangeText={(t) => setCvv(t.slice(0, 3))}
-                      keyboardType="numeric"
-                      secureTextEntry
-                    />
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.checkoutBtn, loading && { opacity: 0.6 }]}
-                  disabled={loading}
-                  onPress={handleCheckout}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#0F172A" />
-                  ) : (
-                    <>
-                      <Lock color="#0F172A" size={15} />
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.checkoutBtn, busy && { opacity: 0.6 }]}
+                    disabled={busy}
+                    onPress={handleCheckout}
+                  >
+                    {busy ? (
+                      <ActivityIndicator color="#0F172A" />
+                    ) : (
                       <Text style={styles.checkoutBtnText}>
-                        {currentUser ? 'Güvenli Öde ve Yükselt' : 'Önce Giriş Yapın'}
+                        {!currentUser
+                          ? 'Önce giriş yapın'
+                          : `${selectedPlan?.title || 'Paketi'} ile öde`}
                       </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                )}
 
                 <View style={styles.securityNote}>
                   <ShieldCheck color="#64748B" size={12} />
                   <Text style={styles.securityText}>
-                    256-Bit SSL korumalı güvenli şifreleme altyapısı.
+                    Kart bilgisi PayTR iframe’inde alınır. Anahtarlar sunucuda kalır. Band 10 kişilik ortak lisans içerir.
                   </Text>
                 </View>
               </ScrollView>
@@ -221,32 +205,30 @@ export default function SubscriptionModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-  modalBox: { width: '100%', maxWidth: 440, maxHeight: 580, backgroundColor: '#0F172A', borderRadius: 12, padding: 18, borderWidth: 1, borderColor: '#1E293B' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  headerTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold' },
-
-  planSelector: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  planCard: { flex: 1, backgroundColor: '#161F30', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 10, alignItems: 'center' },
-  planCardActive: { borderColor: '#F59E0B', backgroundColor: '#1E1B4B' },
-  bestValueBadge: { position: 'absolute', top: -8, backgroundColor: '#F59E0B', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
-  bestValueText: { color: '#0F172A', fontSize: 8, fontWeight: '900' },
-  planTitle: { color: '#CBD5E1', fontSize: 11, fontWeight: 'bold', marginTop: 4 },
-  planPrice: { color: '#F8FAFC', fontSize: 16, fontWeight: '900', marginTop: 2 },
-  planPeriod: { color: '#94A3B8', fontSize: 10, fontWeight: 'normal' },
-  planBilled: { color: '#64748B', fontSize: 9, marginTop: 4, textAlign: 'center' },
-
-  featuresBox: { backgroundColor: '#161F30', borderRadius: 8, padding: 10, gap: 8, marginBottom: 14, borderWidth: 1, borderColor: '#1E293B' },
-  featureItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  featureText: { color: '#E2E8F0', fontSize: 11, fontWeight: '500' },
-
-  formSection: { marginBottom: 14 },
-  formSectionTitle: { color: '#CBD5E1', fontSize: 11, fontWeight: 'bold' },
-  input: { backgroundColor: '#161F30', borderWidth: 1, borderColor: '#334155', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, color: '#F8FAFC', fontSize: 12, marginBottom: 8, outlineStyle: 'none' } as any,
-
-  checkoutBtn: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, backgroundColor: '#F59E0B', paddingVertical: 10, borderRadius: 6 },
-  checkoutBtnText: { color: '#0F172A', fontWeight: '900', fontSize: 12 },
-
-  securityNote: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, marginTop: 10 },
-  securityText: { color: '#64748B', fontSize: 10 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 12 },
+  modalBox: { width: '100%', maxWidth: 720, maxHeight: 640, backgroundColor: '#0F172A', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#1E293B' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  headerTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: '800' },
+  headerSub: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
+  periodRow: { flexDirection: 'row', backgroundColor: '#161F30', borderRadius: 8, padding: 3, marginBottom: 12, gap: 4 },
+  periodBtn: { flex: 1, paddingVertical: 7, borderRadius: 6, alignItems: 'center' },
+  periodBtnOn: { backgroundColor: '#F59E0B' },
+  periodText: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+  periodTextOn: { color: '#0F172A' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  pack: { width: '48%', minWidth: 148, flexGrow: 1, backgroundColor: '#161F30', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 10 },
+  packOn: { borderColor: '#F59E0B', backgroundColor: '#1E1B4B' },
+  packFeatured: { borderColor: '#38BDF8' },
+  featuredLabel: { color: '#38BDF8', fontSize: 8, fontWeight: '900', marginBottom: 2 },
+  packName: { color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
+  packTag: { color: '#94A3B8', fontSize: 10, marginBottom: 6 },
+  packPrice: { color: '#F8FAFC', fontSize: 16, fontWeight: '900' },
+  packPeriod: { color: '#64748B', fontSize: 10, marginBottom: 8 },
+  featRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  featText: { color: '#E2E8F0', fontSize: 10, flex: 1 },
+  iframeWrap: { marginBottom: 10 },
+  checkoutBtn: { backgroundColor: '#F59E0B', paddingVertical: 11, borderRadius: 6, alignItems: 'center' },
+  checkoutBtnText: { color: '#0F172A', fontWeight: '900', fontSize: 13 },
+  securityNote: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  securityText: { color: '#64748B', fontSize: 10, flex: 1 },
 });

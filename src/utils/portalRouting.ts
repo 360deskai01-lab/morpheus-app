@@ -78,7 +78,7 @@ export function isInfoPageId(value: string): value is InfoPageId {
 
 export function parsePathname(pathname: string): PortalRoute {
   const path = (pathname || '/').replace(/\/+$/, '') || '/';
-  if (path === '/') return { kind: 'home' };
+  if (path === '/' || path === '/odeme/basarili' || path === '/odeme/hata') return { kind: 'home' };
 
   const songMatch = path.match(/^\/sarki\/([^/]+)$/i);
   if (songMatch) return { kind: 'song', slug: decodeURIComponent(songMatch[1]) };
